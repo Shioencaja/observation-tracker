@@ -1,103 +1,342 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { Loader2, LogOut, User, Menu, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
+import {
+  SessionWithObservations,
+  ObservationOption,
+} from "@/types/observation";
+import AuthForm from "@/components/AuthForm";
+import DateSelector from "@/components/DateSelector";
+import SessionsTable from "@/components/SessionsTable";
+import ObservationsTable from "@/components/ObservationsTable";
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const { user, loading: authLoading, signOut } = useAuth();
+  const [sessions, setSessions] = useState<SessionWithObservations[]>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null
+  );
+  const [observationOptions, setObservationOptions] = useState<
+    ObservationOption[]
+  >([]);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    return new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD format
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingObservation, setIsCreatingObservation] = useState(false);
+  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [newlyCreatedObservationId, setNewlyCreatedObservationId] = useState<
+    string | null
+  >(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const loadObservationOptions = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("observation_options")
+        .select("*")
+        .eq("is_visible", true)
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+      setObservationOptions(data || []);
+    } catch (error) {
+      console.error("Error loading observation options:", error);
+    }
+  };
+
+  useEffect(() => {
+    // Load observation options regardless of user status (they're global now)
+    loadObservationOptions();
+
+    if (user) {
+      loadAllSessions();
+    } else {
+      // If no user, stop loading immediately
+      setIsLoading(false);
+    }
+  }, [user, selectedDate]);
+
+  const loadAllSessions = async () => {
+    if (!user) return;
+
+    try {
+      // Get sessions for the selected date
+      const startOfDay = new Date(selectedDate + "T00:00:00.000Z");
+      const endOfDay = new Date(selectedDate + "T23:59:59.999Z");
+
+      const { data: sessionsData, error: sessionError } = await supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("start_time", startOfDay.toISOString())
+        .lte("start_time", endOfDay.toISOString())
+        .order("start_time", { ascending: false });
+
+      if (sessionError) {
+        console.error("Session error:", sessionError);
+        alert(`Database error: ${sessionError.message}`);
+        return;
+      }
+
+      if (sessionsData && sessionsData.length > 0) {
+        // Get observations for all sessions
+        const sessionIds = sessionsData.map((s) => s.id);
+        const { data: observations, error: obsError } = await supabase
+          .from("observations")
+          .select("*")
+          .eq("user_id", user.id)
+          .in("session_id", sessionIds)
+          .order("created_at", { ascending: true });
+
+        if (obsError) {
+          console.error("Observations error:", obsError);
+          alert(`Database error: ${obsError.message}`);
+          return;
+        }
+
+        // Group observations by session
+        const sessionsWithObservations = sessionsData.map((session) => ({
+          ...session,
+          observations:
+            observations?.filter((obs) => obs.session_id === session.id) || [],
+        }));
+
+        setSessions(sessionsWithObservations);
+
+        // Auto-select the most recent session if none selected
+        if (!selectedSessionId && sessionsData.length > 0) {
+          setSelectedSessionId(sessionsData[0].id);
+        }
+      } else {
+        setSessions([]);
+        setSelectedSessionId(null);
+      }
+    } catch (error) {
+      console.error("Error loading sessions:", error);
+      alert(`Unexpected error: ${error}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const createNewSession = async () => {
+    if (!user) return;
+
+    setIsCreatingSession(true);
+    try {
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("sessions")
+        .insert({
+          user_id: user.id,
+          start_time: now,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Reload all sessions to get the updated list
+      await loadAllSessions();
+
+      // Select the newly created session
+      setSelectedSessionId(data.id);
+    } catch (error) {
+      console.error("Error creating session:", error);
+      alert("Error al crear sesión");
+    } finally {
+      setIsCreatingSession(false);
+    }
+  };
+
+  const addObservation = async () => {
+    if (!selectedSessionId || !user) return;
+
+    setIsCreatingObservation(true);
+    try {
+      // Get a random option if available
+      const randomOption =
+        observationOptions.length > 0
+          ? observationOptions[
+              Math.floor(Math.random() * observationOptions.length)
+            ]
+          : null;
+
+      const { data, error } = await supabase
+        .from("observations")
+        .insert({
+          session_id: selectedSessionId,
+          user_id: user.id,
+          option_ids: randomOption?.id || null,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Supabase error details:", error);
+        throw error;
+      }
+
+      // Set the newly created observation ID for auto-edit mode
+      setNewlyCreatedObservationId(data.id);
+
+      // Reload all sessions to get updated data
+      await loadAllSessions();
+    } catch (error) {
+      console.error("Error creating observation:", error);
+      console.error("Error details:", JSON.stringify(error, null, 2));
+      alert(`Error: ${error.message || "Error desconocido"}`);
+    } finally {
+      setIsCreatingObservation(false);
+    }
+  };
+
+  const clearNewlyCreatedObservationId = () => {
+    setNewlyCreatedObservationId(null);
+  };
+
+  if (authLoading || isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <Loader2 size={20} className="animate-spin" />
+          Loading...
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <AuthForm />;
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Navbar */}
+      <nav className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="max-w-6xl mx-auto px-1 sm:px-4">
+          <div className="flex h-14 items-center justify-between">
+            {/* Logo/Title */}
+            <div className="flex items-center">
+              <h1 className="text-lg font-semibold sm:text-xl">
+                Dependencia del guía
+              </h1>
+            </div>
+
+            {/* Desktop Navigation */}
+            <div className="hidden sm:flex items-center gap-4">
+              <DateSelector
+                selectedDate={selectedDate}
+                onDateChange={setSelectedDate}
+              />
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <User size={16} />
+                <span className="max-w-32 truncate">{user.email}</span>
+              </div>
+              <Button
+                onClick={signOut}
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2"
+              >
+                <LogOut size={16} />
+                Salir
+              </Button>
+            </div>
+
+            {/* Mobile Menu */}
+            <div className="flex items-center gap-2 sm:hidden">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="p-2">
+                    <Menu size={20} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-3" align="end">
+                  <div className="flex flex-col gap-3">
+                    {/* Date Selector */}
+                    <div>
+                      <h3 className="text-sm font-medium mb-2">Fecha</h3>
+                      <DateSelector
+                        selectedDate={selectedDate}
+                        onDateChange={setSelectedDate}
+                      />
+                    </div>
+
+                    {/* User Info and Actions */}
+                    <div className="flex flex-col gap-2 pt-2 border-t">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <User size={16} />
+                        <span className="truncate">{user.email}</span>
+                      </div>
+                      <Button
+                        onClick={signOut}
+                        variant="outline"
+                        size="sm"
+                        className="flex items-center gap-2 justify-start"
+                      >
+                        <LogOut size={16} />
+                        Salir
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto p-1 sm:p-4 space-y-3 sm:space-y-6">
+        <div className="space-y-3 sm:space-y-4">
+          {/* Sessions Table */}
+          <SessionsTable
+            sessions={sessions}
+            selectedSessionId={selectedSessionId}
+            onSessionSelect={setSelectedSessionId}
+            onCreateSession={createNewSession}
+            onUpdate={loadAllSessions}
+            isCreatingSession={isCreatingSession}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+          {/* Observations Table */}
+          {selectedSessionId &&
+            (() => {
+              const currentSession = sessions.find(
+                (s) => s.id === selectedSessionId
+              );
+              return currentSession ? (
+                <ObservationsTable
+                  observations={currentSession.observations}
+                  sessionId={currentSession.id}
+                  onUpdate={loadAllSessions}
+                  canAddObservations={!currentSession.end_time}
+                  onAddObservation={addObservation}
+                  newlyCreatedObservationId={newlyCreatedObservationId}
+                  onClearNewlyCreatedObservationId={
+                    clearNewlyCreatedObservationId
+                  }
+                />
+              ) : null;
+            })()}
+        </div>
+      </div>
     </div>
   );
 }

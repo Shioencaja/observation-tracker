@@ -1,0 +1,21 @@
+name,description,is_visible
+Good behavior,Positive behavior observed,true
+Needs attention,Behavior requiring attention,true
+Following instructions,Student following directions well,true
+Distracted,Student appears distracted,true
+Helping others,Student helping classmates,true
+Disruptive,Disruptive behavior observed,true
+On task,Student is focused on assigned work,true
+Off task,Student is not focused on assigned work,true
+Participating,Student actively participating in class,true
+Quiet,Student is being quiet and respectful,true
+Asking questions,Student is asking relevant questions,true
+Collaborating,Student working well with others,true
+Independent work,Student working independently,true
+Seeking help,Student appropriately seeking assistance,true
+Completed task,Student has completed assigned task,true
+Incomplete work,Student work is incomplete,true
+Excellent effort,Student showing exceptional effort,true
+Needs encouragement,Student could benefit from encouragement,true
+Time management,Student managing time well,true
+Organization,Student is well organized,true

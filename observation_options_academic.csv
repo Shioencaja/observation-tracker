@@ -1,0 +1,21 @@
+name,description,is_visible
+Mastery achieved,Student has mastered the concept,true
+Making progress,Student showing academic progress,true
+Needs support,Student requires additional academic support,true
+Advanced understanding,Student demonstrating advanced understanding,true
+Struggling,Student struggling with current material,true
+Ready for challenge,Student ready for more challenging work,true
+Needs review,Student needs to review previous material,true
+Excellent comprehension,Student showing excellent comprehension,true
+Application skills,Student applying knowledge effectively,true
+Analysis skills,Student demonstrating strong analysis skills,true
+Synthesis ability,Student able to synthesize information,true
+Evaluation skills,Student showing good evaluation skills,true
+Research skills,Student demonstrating research abilities,true
+Writing skills,Student showing strong writing skills,true
+Reading comprehension,Student demonstrating good reading comprehension,true
+Mathematical reasoning,Student showing strong mathematical reasoning,true
+Scientific thinking,Student demonstrating scientific thinking,true
+Historical understanding,Student showing historical understanding,true
+Artistic expression,Student demonstrating artistic abilities,true
+Technical skills,Student showing technical proficiency,true
