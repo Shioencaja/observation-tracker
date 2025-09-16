@@ -29,7 +29,12 @@ export default function Home() {
     ObservationOption[]
   >([]);
   const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD format
+    // Get today's date in local timezone
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -56,9 +61,9 @@ export default function Home() {
     if (!user) return;
 
     try {
-      // Get sessions for the selected date
-      const startOfDay = new Date(selectedDate + "T00:00:00.000Z");
-      const endOfDay = new Date(selectedDate + "T23:59:59.999Z");
+      // Get sessions for the selected date (using local timezone)
+      const startOfDay = new Date(selectedDate + "T00:00:00");
+      const endOfDay = new Date(selectedDate + "T23:59:59.999");
 
       const { data: sessionsData, error: sessionError } = await supabase
         .from("sessions")
