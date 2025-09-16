@@ -1,15 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Loader2, LogOut, User, Menu, X } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Loader2, LogOut, User, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Popover,
   PopoverContent,
@@ -39,7 +32,6 @@ export default function Home() {
     return new Date().toISOString().split("T")[0]; // Today's date in YYYY-MM-DD format
   });
   const [isLoading, setIsLoading] = useState(true);
-  const [isCreatingObservation, setIsCreatingObservation] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [newlyCreatedObservationId, setNewlyCreatedObservationId] = useState<
     string | null
@@ -60,19 +52,7 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    // Load observation options regardless of user status (they're global now)
-    loadObservationOptions();
-
-    if (user) {
-      loadAllSessions();
-    } else {
-      // If no user, stop loading immediately
-      setIsLoading(false);
-    }
-  }, [user, selectedDate]);
-
-  const loadAllSessions = async () => {
+  const loadAllSessions = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -133,7 +113,19 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user, selectedDate]);
+
+  useEffect(() => {
+    // Load observation options regardless of user status (they're global now)
+    loadObservationOptions();
+
+    if (user) {
+      loadAllSessions();
+    } else {
+      // If no user, stop loading immediately
+      setIsLoading(false);
+    }
+  }, [user, selectedDate, loadAllSessions]);
 
   const createNewSession = async () => {
     if (!user) return;
@@ -168,7 +160,6 @@ export default function Home() {
   const addObservation = async () => {
     if (!selectedSessionId || !user) return;
 
-    setIsCreatingObservation(true);
     try {
       // Get a random option if available
       const randomOption =
@@ -201,9 +192,9 @@ export default function Home() {
     } catch (error) {
       console.error("Error creating observation:", error);
       console.error("Error details:", JSON.stringify(error, null, 2));
-      alert(`Error: ${error.message || "Error desconocido"}`);
+      alert(`Error: ${error instanceof Error ? error.message : "Error desconocido"}`);
     } finally {
-      setIsCreatingObservation(false);
+      // Observation creation completed
     }
   };
 

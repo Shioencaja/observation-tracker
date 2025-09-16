@@ -8,7 +8,6 @@ import {
   Plus,
   Trash2,
   ChevronDown,
-  Check as CheckIcon,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Observation, ObservationOption } from "@/types/observation";
@@ -405,9 +404,6 @@ export default function ObservationsTable({
                             className="cursor-pointer p-1.5 sm:p-2 rounded-lg border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-all duration-200 min-h-[2rem] sm:min-h-[2.5rem] flex items-center group"
                           >
                             <div className="flex-1 min-w-0">
-                              <p className="text-gray-800 leading-relaxed group-hover:text-gray-900 text-sm sm:text-base truncate">
-                                {observation.description}
-                              </p>
                               {observation.option_ids && (
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {getOptionNames(observation.option_ids).map(

@@ -20,13 +20,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-interface ObservationOptionsManagerProps {
-  onOptionsChange: () => void;
-}
-
-export default function ObservationOptionsManager({
-  onOptionsChange,
-}: ObservationOptionsManagerProps) {
+export default function ObservationOptionsManager() {
   const [options, setOptions] = useState<ObservationOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
