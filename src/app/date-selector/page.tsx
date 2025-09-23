@@ -141,7 +141,10 @@ function DateSelectorPageContent() {
             <CardContent className="space-y-3 sm:space-y-4 lg:space-y-6 px-3 sm:px-6">
               {/* Large Date Selector */}
               <div className="space-y-2">
-                <label htmlFor="date-selector-input" className="text-sm font-medium text-gray-700">
+                <label
+                  htmlFor="date-selector-input"
+                  className="text-sm font-medium text-gray-700"
+                >
                   Fecha
                 </label>
                 <input
