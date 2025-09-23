@@ -8,7 +8,7 @@ import QuestionRenderer from "./questions/QuestionRenderer";
 import { observationService } from "@/services/observation-service";
 
 interface Question {
-        id: string;
+  id: string;
   name: string;
   question_type: string;
   options: string[];
@@ -80,26 +80,64 @@ export default function QuestionnaireForm({
 
   // Auto-save function
   const autoSave = useCallback(async () => {
-    if (isSessionFinished || !selectedSessionId || !hasChanges) {
+    if (isSessionFinished || !selectedSessionId || !hasChanges || isLoading) {
       return;
     }
 
     setIsAutoSaving(true);
     try {
+      // Double-check that session still exists before saving
+      if (!selectedSessionId) {
+        console.log("Session no longer exists, skipping auto-save");
+        return;
+      }
       // Save each response as an observation
       for (const [questionId, response] of Object.entries(responses)) {
         if (response !== null && response !== undefined && response !== "") {
-          const { error } = await observationService.upsertObservation({
-            session_id: selectedSessionId,
-            project_observation_option_id: questionId,
-            response:
-              typeof response === "string"
-                ? response
-                : JSON.stringify(response),
-          });
+          const responseString =
+            typeof response === "string" ? response : JSON.stringify(response);
 
-          if (error) {
-            console.error("Error auto-saving observation:", error);
+          // Check if this is a voice response and if we're updating an existing one
+          const isVoiceResponse = responseString.includes("[Audio:");
+          const previousResponse = lastSavedRef.current[questionId];
+          const isUpdatingVoice =
+            isVoiceResponse &&
+            previousResponse &&
+            previousResponse !== responseString;
+
+          if (isUpdatingVoice) {
+            // Use voice cleanup function for voice recording updates
+            const { data: existing } =
+              await observationService.getObservationsBySession(
+                selectedSessionId
+              );
+            const existingObservation = existing?.find(
+              (obs) => obs.project_observation_option_id === questionId
+            );
+
+            if (existingObservation) {
+              const { error } =
+                await observationService.updateObservationWithVoiceCleanup(
+                  existingObservation.id,
+                  { response: responseString },
+                  previousResponse
+                );
+
+              if (error) {
+                console.error("Error auto-saving voice observation:", error);
+              }
+            }
+          } else {
+            // Use regular upsert for non-voice or new observations
+            const { error } = await observationService.upsertObservation({
+              session_id: selectedSessionId,
+              project_observation_option_id: questionId,
+              response: responseString,
+            });
+
+            if (error) {
+              console.error("Error auto-saving observation:", error);
+            }
           }
         }
       }
@@ -113,11 +151,11 @@ export default function QuestionnaireForm({
     } finally {
       setIsAutoSaving(false);
     }
-  }, [responses, selectedSessionId, isSessionFinished, hasChanges]);
+  }, [responses, selectedSessionId, isSessionFinished, hasChanges, isLoading]);
 
   // Set up auto-save timer
   useEffect(() => {
-    if (hasChanges && !isSessionFinished) {
+    if (hasChanges && !isSessionFinished && !isLoading) {
       // Clear existing timer
       if (autoSaveRef.current) {
         clearTimeout(autoSaveRef.current);
@@ -135,7 +173,7 @@ export default function QuestionnaireForm({
         clearTimeout(autoSaveRef.current);
       }
     };
-  }, [hasChanges, autoSave, isSessionFinished]);
+  }, [hasChanges, autoSave, isSessionFinished, isLoading]);
 
   // Check for changes
   useEffect(() => {
@@ -150,12 +188,12 @@ export default function QuestionnaireForm({
 
     setIsFinishing(true);
     try {
-      // First, save any pending changes
+      // First, save any pending changes using auto-save
       if (hasChanges) {
         await autoSave();
       }
 
-      // Then finish the session
+      // Then finish the session (this will NOT trigger additional saves)
       await onFinishSession();
       console.log("✅ Session finished successfully");
     } catch (error) {
@@ -165,12 +203,23 @@ export default function QuestionnaireForm({
     }
   };
 
+  // Save changes when session changes (cleanup effect)
+  useEffect(() => {
+    return () => {
+      // Save any pending changes when component unmounts or session changes
+      if (hasChanges && !isSessionFinished && selectedSessionId) {
+        autoSave();
+      }
+    };
+  }, [selectedSessionId, hasChanges, isSessionFinished, autoSave]);
+
   // Load existing observations when session changes
   useEffect(() => {
     const loadExistingObservations = async () => {
       if (!selectedSessionId || displayQuestions.length === 0) {
         setResponses({});
         setIsInitialLoad(true);
+        setHasChanges(false);
         return;
       }
 
@@ -185,6 +234,8 @@ export default function QuestionnaireForm({
 
         if (error) {
           console.error("Error loading observations:", error);
+          setResponses({});
+          setHasChanges(false);
           return;
         }
 
@@ -219,7 +270,7 @@ export default function QuestionnaireForm({
         // Update last saved state to prevent false change detection
         lastSavedRef.current = { ...existingResponses };
         setIsInitialLoad(false);
-    } catch (error) {
+      } catch (error) {
         console.error("Error loading observations:", error);
       } finally {
         setLoadingObservations(false);
@@ -241,23 +292,20 @@ export default function QuestionnaireForm({
     }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave(responses);
-  };
+  // Manual save is now handled by auto-save, so we don't need handleSubmit
 
   const renderQuestion = (question: Question) => {
-        return (
+    return (
       <div key={question.id}>
         <QuestionRenderer
-            question={question}
+          question={question}
           value={responses[question.id]}
           onChange={(value) => handleResponseChange(question.id, value)}
           required={!isSessionFinished}
           disabled={isSessionFinished}
-            />
-          </div>
-        );
+        />
+      </div>
+    );
   };
 
   return (
@@ -299,7 +347,7 @@ export default function QuestionnaireForm({
                 Elige una sesión existente de la tabla superior o crea una nueva
                 sesión para empezar a llenar el cuestionario.
               </p>
-              </div>
+            </div>
             {onCreateSession && (
               <Button
                 onClick={onCreateSession}
@@ -310,7 +358,7 @@ export default function QuestionnaireForm({
                 {isCreatingSession ? "Creando sesión..." : "Crear Nueva Sesión"}
               </Button>
             )}
-                </div>
+          </div>
         ) : loadingObservations ? (
           <div className="flex items-center justify-center py-8">
             <div className="text-gray-500">
@@ -318,27 +366,22 @@ export default function QuestionnaireForm({
             </div>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-6">
             {displayQuestions.map(renderQuestion)}
 
-            {!isSessionFinished && (
-              <div className="flex gap-3">
-                <Button type="submit" disabled={isLoading} className="flex-1">
-                  {isLoading ? "Guardando..." : "Guardar Respuestas"}
-              </Button>
-                {onFinishSession && (
-                    <Button
-                    type="button"
-                    onClick={handleFinishSession}
-                    disabled={isLoading || isFinishing}
-                    variant="destructive"
-                    className="flex-1"
-                  >
-                    {isFinishing ? "Finalizando..." : "Finalizar Sesión"}
-                    </Button>
-              )}
-            </div>
-          )}
+            {!isSessionFinished && onFinishSession && (
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  onClick={handleFinishSession}
+                  disabled={isLoading || isFinishing}
+                  variant="destructive"
+                  className="px-8"
+                >
+                  {isFinishing ? "Finalizando..." : "Finalizar Sesión"}
+                </Button>
+              </div>
+            )}
 
             {isSessionFinished && (
               <div className="text-center py-4 text-gray-500 text-sm">
@@ -346,7 +389,7 @@ export default function QuestionnaireForm({
                 editar.
               </div>
             )}
-          </form>
+          </div>
         )}
       </CardContent>
     </Card>

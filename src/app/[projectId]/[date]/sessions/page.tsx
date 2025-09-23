@@ -66,6 +66,8 @@ function DateSessionsPageContent() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
   const [sessionsTableOpen, setSessionsTableOpen] = useState(true);
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
+  const [skipNextLoad, setSkipNextLoad] = useState(false);
   const [toasts, setToasts] = useState<
     Array<{
       id: string;
@@ -126,7 +128,7 @@ function DateSessionsPageContent() {
     if (sessionParam && !selectedSessionId) {
       handleSessionSelect(sessionParam);
     }
-  }, [searchParams, selectedSessionId]);
+  }, [searchParams]); // Removed selectedSessionId from dependencies to prevent loops
 
   // Load project data
   useEffect(() => {
@@ -265,7 +267,81 @@ function DateSessionsPageContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [user, project, selectedDate, selectedSessionId, selectedAgency]);
+  }, [user, project, selectedDate, selectedAgency]); // Removed selectedSessionId to prevent reload loops
+
+  // Load all sessions for the selected date and agency (without auto-selecting)
+  const loadAllSessionsAfterDeletion = useCallback(async () => {
+    if (!user || !project || !selectedDate) return;
+
+    try {
+      setIsLoading(true);
+
+      // Get sessions for the selected date (using local timezone)
+      const startOfDay = new Date(selectedDate + "T00:00:00");
+      const endOfDay = new Date(selectedDate + "T23:59:59.999");
+
+      let query = supabase
+        .from("sessions")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("project_id", project.id)
+        .gte("created_at", startOfDay.toISOString())
+        .lte("created_at", endOfDay.toISOString())
+        .order("created_at", { ascending: false });
+
+      // Add agency filter if selected
+      if (selectedAgency && selectedAgency !== "all") {
+        query = query.eq("agency", selectedAgency);
+      }
+
+      const { data: sessionsData, error: sessionsError } = await query;
+
+      if (sessionsError) {
+        console.error("Error loading sessions:", sessionsError);
+        showToast(
+          `Error al cargar sesiones: ${sessionsError.message}`,
+          "error"
+        );
+        return;
+      }
+
+      if (sessionsData && sessionsData.length > 0) {
+        // Load observations for each session
+        const sessionIds = sessionsData.map((session) => session.id);
+        const { data: observations, error: obsError } = await supabase
+          .from("observations")
+          .select("*")
+          .in("session_id", sessionIds)
+          .eq("user_id", user.id);
+
+        if (obsError) {
+          console.error("Error loading observations:", obsError);
+          showToast(
+            `Error al cargar observaciones: ${obsError.message}`,
+            "error"
+          );
+          return;
+        }
+
+        // Combine sessions with their observations
+        const sessionsWithObservations = sessionsData.map((session) => ({
+          ...session,
+          observations:
+            observations?.filter((obs) => obs.session_id === session.id) || [],
+        }));
+
+        setSessions(sessionsWithObservations);
+        // Don't auto-select any session after deletion
+      } else {
+        setSessions([]);
+      }
+    } catch (error) {
+      console.error("Error loading sessions:", error);
+      showToast(`Error inesperado: ${error}`, "error");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user, project, selectedDate, selectedAgency]);
 
   useEffect(() => {
     // Load observation options when project is available
@@ -276,10 +352,14 @@ function DateSessionsPageContent() {
 
   useEffect(() => {
     // Load sessions when project and date are available
-    if (project && selectedDate) {
+    if (project && selectedDate && !skipNextLoad) {
       loadAllSessions();
     }
-  }, [project, selectedDate, loadAllSessions]);
+    // Reset skip flag after use
+    if (skipNextLoad) {
+      setSkipNextLoad(false);
+    }
+  }, [project, selectedDate, loadAllSessions, skipNextLoad]);
 
   // Create new session
   const createNewSession = async () => {
@@ -330,6 +410,7 @@ function DateSessionsPageContent() {
     if (!selectedSessionId || !user) return;
 
     try {
+      // Only update the session end time - observations are already saved by QuestionnaireForm
       const { error } = await supabase
         .from("sessions")
         .update({ end_time: new Date().toISOString() })
@@ -365,6 +446,8 @@ function DateSessionsPageContent() {
   const confirmDeleteSession = async () => {
     if (!sessionToDelete || !user) return;
 
+    console.log("🗑️ Starting session deletion:", sessionToDelete);
+    setIsDeletingSession(true);
     try {
       // First, get all observations to extract voice recording URLs
       const { data: observations, error: fetchError } = await supabase
@@ -445,90 +528,38 @@ function DateSessionsPageContent() {
 
       // Clear selected session if it was the deleted one
       if (selectedSessionId === sessionToDelete) {
-        handleSessionSelect(null);
+        console.log("🔄 Clearing selected session and updating URL");
+        setSelectedSessionId(null);
+        updateURL(null);
+        setSkipNextLoad(true); // Prevent loadAllSessions from triggering
       }
 
-      // Reload sessions
-      await loadAllSessions();
-      showToast(
-        "Sesión y todas sus observaciones eliminadas exitosamente",
-        "success"
-      );
+      // Reload sessions to get updated list (without auto-selecting)
+      try {
+        await loadAllSessionsAfterDeletion();
+        showToast(
+          "Sesión y todas sus observaciones eliminadas exitosamente",
+          "success"
+        );
+      } catch (reloadError) {
+        console.error("Error reloading sessions after deletion:", reloadError);
+        showToast(
+          "Sesión eliminada, pero hubo un error al actualizar la lista",
+          "warning"
+        );
+      }
     } catch (error) {
       console.error("Unexpected error deleting session:", error);
       showToast("Error inesperado al eliminar la sesión", "error");
     } finally {
+      console.log("✅ Session deletion process completed");
       setDeleteDialogOpen(false);
       setSessionToDelete(null);
+      setIsDeletingSession(false);
     }
   };
 
-  // Handle questionnaire form submission
-  const handleQuestionnaireSave = async (responses: Record<string, any>) => {
-    if (!selectedSessionId || !user) return;
-
-    try {
-      console.log("Saving questionnaire responses:", responses);
-
-      // Create observations for each response
-      const observationPromises = Object.entries(responses).map(
-        ([questionId, response]) => {
-          // Skip empty responses
-          if (!response || (Array.isArray(response) && response.length === 0)) {
-            return null;
-          }
-
-          return supabase
-            .from("observations")
-            .insert({
-              session_id: selectedSessionId,
-              user_id: user.id,
-              project_observation_option_id: questionId,
-              response: Array.isArray(response)
-                ? JSON.stringify(response)
-                : String(response),
-            })
-            .select()
-            .single();
-        }
-      );
-
-      // Filter out null promises and execute all insertions
-      const validPromises = observationPromises.filter((p) => p !== null);
-
-      if (validPromises.length === 0) {
-        showToast("Por favor, responde al menos una pregunta.", "warning");
-        return;
-      }
-
-      const results = await Promise.all(validPromises);
-
-      // Check for errors
-      const errors = results.filter((result) => result.error);
-      if (errors.length > 0) {
-        console.error("Errors creating observations:", errors);
-        throw new Error("Error al guardar algunas respuestas");
-      }
-
-      console.log(
-        "Successfully saved observations:",
-        results.map((r) => r.data)
-      );
-
-      // Reload all sessions to get updated data
-      await loadAllSessions();
-
-      showToast("Respuestas guardadas exitosamente!", "success");
-    } catch (error) {
-      console.error("Error saving questionnaire responses:", error);
-      showToast(
-        `Error: ${
-          error instanceof Error ? error.message : "Error desconocido"
-        }`,
-        "error"
-      );
-    }
-  };
+  // Manual save is now handled by auto-save in QuestionnaireForm
 
   // Create new observation (keeping for compatibility)
   const createNewObservation = async () => {
@@ -697,8 +728,7 @@ function DateSessionsPageContent() {
               return (
                 <QuestionnaireForm
                   observationOptions={observationOptions}
-                  onSave={handleQuestionnaireSave}
-                  isLoading={false}
+                  isLoading={isDeletingSession}
                   selectedSessionId={selectedSessionId}
                   isSessionFinished={isSessionFinished}
                   onFinishSession={handleFinishSession}

@@ -29,6 +29,7 @@ export default function VoiceQuestionWithStorage({
   const [isUploading, setIsUploading] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [previousAudioUrl, setPreviousAudioUrl] = useState<string | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -41,6 +42,8 @@ export default function VoiceQuestionWithStorage({
       const audioUrlMatch = value.match(/\[Audio: (.*?)\]/);
       if (audioUrlMatch) {
         const url = audioUrlMatch[1];
+        // Store current URL as previous before updating
+        setPreviousAudioUrl(audioUrl);
         setAudioUrl(url);
         setHasRecording(true);
 
@@ -48,10 +51,11 @@ export default function VoiceQuestionWithStorage({
         testAudioUrl(url);
       }
     } else {
+      setPreviousAudioUrl(audioUrl);
       setAudioUrl(null);
       setHasRecording(false);
     }
-  }, [value]);
+  }, [value, audioUrl]);
 
   const testAudioUrl = async (url: string) => {
     try {
@@ -59,6 +63,29 @@ export default function VoiceQuestionWithStorage({
       // URL is accessible if response is ok
     } catch {
       // URL is not accessible
+    }
+  };
+
+  const deletePreviousRecording = async (url: string) => {
+    try {
+      // Extract filename from URL
+      const urlParts = url.split("/");
+      const filename = urlParts[urlParts.length - 1];
+
+      // Delete from Supabase Storage
+      const { error } = await supabase.storage
+        .from("voice-recordings")
+        .remove([filename]);
+
+      if (error) {
+        console.error("Error deleting previous recording:", error);
+        // Don't throw error - just log it, as the new recording is more important
+      } else {
+        console.log("✅ Previous recording deleted:", filename);
+      }
+    } catch (error) {
+      console.error("Error deleting previous recording:", error);
+      // Don't throw error - just log it
     }
   };
 
@@ -146,6 +173,12 @@ export default function VoiceQuestionWithStorage({
   const uploadToStorage = async (audioBlob: Blob) => {
     try {
       setIsUploading(true);
+
+      // Delete previous recording if it exists
+      if (previousAudioUrl) {
+        await deletePreviousRecording(previousAudioUrl);
+        setPreviousAudioUrl(null);
+      }
 
       // Generate unique filename
       const timestamp = Date.now();
@@ -244,8 +277,13 @@ export default function VoiceQuestionWithStorage({
     }
   };
 
-  const clearRecording = () => {
+  const clearRecording = async () => {
     if (disabled) return;
+
+    // Delete current recording from storage if it exists
+    if (audioUrl) {
+      await deletePreviousRecording(audioUrl);
+    }
 
     setAudioUrl(null);
     setHasRecording(false);
