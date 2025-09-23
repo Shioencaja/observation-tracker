@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import ConditionalNavbar from "@/components/ConditionalNavbar";
+import "./globals.css";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,22 +15,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Observation Tracker",
-  description:
-    "Track your observations with timestamps and editable descriptions",
+  title: "Toolkit PXD",
+  description: "Sistema para registrar observaciones y entrevistas",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ConditionalNavbar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

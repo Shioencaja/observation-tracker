@@ -20,26 +20,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log("🔍 AuthProvider: Starting initialization...");
-
     // Set a timeout to prevent infinite loading
     const timeout = setTimeout(() => {
-      console.log(
-        "⏰ AuthProvider: 5-second timeout reached - forcing loading to false"
-      );
       setLoading(false);
     }, 5000); // 5 second timeout
 
     // Get initial session
-    console.log("🔍 AuthProvider: Getting initial session...");
     supabase.auth
       .getSession()
       .then(({ data: { session }, error }) => {
-        console.log("✅ AuthProvider: Initial session received", {
-          hasSession: !!session,
-          hasUser: !!session?.user,
-          error: error?.message,
-        });
         clearTimeout(timeout);
         setSession(session);
         setUser(session?.user ?? null);
@@ -52,15 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
     // Listen for auth changes
-    console.log("🔍 AuthProvider: Setting up auth state listener...");
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("🔄 AuthProvider: Auth state changed", {
-        event,
-        hasSession: !!session,
-        hasUser: !!session?.user,
-      });
       clearTimeout(timeout);
       setSession(session);
       setUser(session?.user ?? null);
@@ -68,7 +51,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
-      console.log("🧹 AuthProvider: Cleaning up...");
       clearTimeout(timeout);
       subscription.unsubscribe();
     };

@@ -81,10 +81,16 @@ export default function ObservationOptionsManager() {
           <div className="rounded-md border">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Status</TableHead>
+                <TableRow className="border-b bg-muted/50 hover:bg-muted/50">
+                  <TableHead className="text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                    Name
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                    Description
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                    Status
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

@@ -1,18 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import {
-  Pencil,
-  Check,
-  X,
-  Plus,
-  Trash2,
-  ChevronDown,
-} from "lucide-react";
+import { useState, useEffect } from "react";
+import { Pencil, Check, X, Plus, Trash2, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { Observation, ObservationOption } from "@/types/observation";
+import { Observation } from "@/types/observation";
+import { Tables } from "@/types/supabase";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -35,6 +28,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PaginationWrapper } from "@/components/ui/pagination-wrapper";
+import { usePagination } from "@/hooks/use-pagination";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,50 +45,42 @@ import {
 interface ObservationsTableProps {
   observations: Observation[];
   sessionId: string;
+  projectId: string;
   onUpdate: () => void;
   canAddObservations: boolean;
   onAddObservation: () => void;
   newlyCreatedObservationId?: string | null;
   onClearNewlyCreatedObservationId: () => void;
+  observationOptions: Tables<"project_observation_options">[];
 }
 
 export default function ObservationsTable({
   observations,
   sessionId,
+  projectId,
   onUpdate,
   canAddObservations,
   onAddObservation,
   newlyCreatedObservationId,
   onClearNewlyCreatedObservationId,
+  observationOptions,
 }: ObservationsTableProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDescription, setEditDescription] = useState("");
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [options, setOptions] = useState<ObservationOption[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Use the observationOptions passed from parent
+  const options = observationOptions;
 
-  // Suppress unused parameter warning
-  void sessionId;
-
-  const loadOptions = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("observation_options")
-        .select("*")
-        .eq("is_visible", true)
-        .order("name", { ascending: true });
-
-      if (error) throw error;
-      setOptions(data || []);
-    } catch (error) {
-      console.error("Error loading options:", error);
-    }
-  };
-
-  useEffect(() => {
-    loadOptions();
-  }, []);
+  // Pagination for observations
+  const {
+    currentPage,
+    totalPages,
+    paginatedData: paginatedObservations,
+    goToPage,
+  } = usePagination({
+    data: observations,
+    itemsPerPage: 10,
+  });
 
   // Auto-edit newly created observations
   useEffect(() => {
@@ -103,21 +90,13 @@ export default function ObservationsTable({
       );
       if (newObservation) {
         setEditingId(newObservation.id);
-        setEditDescription(""); // Start with empty description
         setSelectedOptions(
-          newObservation.option_ids ? newObservation.option_ids.split(",") : []
+          newObservation.project_observation_option_id
+            ? [newObservation.project_observation_option_id]
+            : []
         );
         // Clear the newly created observation ID after setting up edit mode
         onClearNewlyCreatedObservationId();
-
-        // Focus the input after a short delay to ensure it's rendered
-        setTimeout(() => {
-          if (inputRef.current) {
-            inputRef.current.focus();
-            // Select all text for easy replacement
-            inputRef.current.select();
-          }
-        }, 100);
       }
     }
   }, [
@@ -128,10 +107,11 @@ export default function ObservationsTable({
 
   const handleEdit = (observation: Observation) => {
     setEditingId(observation.id);
-    setEditDescription(""); // Start with empty description
-    // Parse comma-separated option IDs
+    // Use single project observation option ID
     setSelectedOptions(
-      observation.option_ids ? observation.option_ids.split(",") : []
+      observation.project_observation_option_id
+        ? [observation.project_observation_option_id]
+        : []
     );
   };
 
@@ -143,8 +123,8 @@ export default function ObservationsTable({
       const { error } = await supabase
         .from("observations")
         .update({
-          option_ids:
-            selectedOptions.length > 0 ? selectedOptions.join(",") : null,
+          project_observation_option_id:
+            selectedOptions.length > 0 ? selectedOptions[0] : null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", editingId);
@@ -152,7 +132,6 @@ export default function ObservationsTable({
       if (error) throw error;
 
       setEditingId(null);
-      setEditDescription("");
       setSelectedOptions([]);
       onUpdate();
     } catch (error) {
@@ -165,7 +144,6 @@ export default function ObservationsTable({
 
   const handleCancel = () => {
     setEditingId(null);
-    setEditDescription("");
     setSelectedOptions([]);
   };
 
@@ -190,31 +168,18 @@ export default function ObservationsTable({
 
   const handleOptionChange = (optionId: string, checked: boolean) => {
     if (checked) {
-      // Add option to selected options (allow multiple)
-      setSelectedOptions((prev) => [...prev, optionId]);
+      // Set single option (replace any existing selection)
+      setSelectedOptions([optionId]);
     } else {
-      // Remove option from selected options
-      setSelectedOptions((prev) => prev.filter((id) => id !== optionId));
+      // Clear selection
+      setSelectedOptions([]);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleSave();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      handleCancel();
-    }
-  };
-
-  const getOptionNames = (optionIds: string | null) => {
-    if (!optionIds) return [];
-    const optionIdArray = optionIds.split(",");
-    return optionIdArray.map((id) => {
-      const option = options.find((opt) => opt.id === id);
-      return option?.name || "Unknown Option";
-    });
+  const getOptionName = (optionId: string | null) => {
+    if (!optionId) return null;
+    const option = options.find((opt) => opt.id === optionId);
+    return option?.name || "Unknown Option";
   };
 
   return (
@@ -251,41 +216,36 @@ export default function ObservationsTable({
               )}
             </div>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
+            <div className="rounded-md border border-gray-200 overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8 sm:w-12 text-center">#</TableHead>
-                    <TableHead className="min-w-[150px]">Opciones</TableHead>
-                    <TableHead className="hidden md:table-cell w-20">
+                  <TableRow className="border-b bg-muted/50 hover:bg-muted/50">
+                    <TableHead className="w-8 sm:w-12 text-center text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                      #
+                    </TableHead>
+                    <TableHead className="min-w-[150px] text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                      Opciones
+                    </TableHead>
+                    <TableHead className="hidden md:table-cell w-20 text-xs font-semibold text-foreground uppercase tracking-wide py-3">
                       Creado
                     </TableHead>
-                    <TableHead className="hidden lg:table-cell w-20">
+                    <TableHead className="hidden lg:table-cell w-20 text-xs font-semibold text-foreground uppercase tracking-wide py-3">
                       Actualizado
                     </TableHead>
-                    <TableHead className="text-right w-20">Acciones</TableHead>
+                    <TableHead className="text-right w-20 text-xs font-semibold text-foreground uppercase tracking-wide py-3">
+                      Acciones
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {observations.map((observation, index) => (
-                    <TableRow key={observation.id}>
+                  {paginatedObservations.map((observation, index) => (
+                    <TableRow key={observation.id} className="h-12">
                       <TableCell className="font-medium text-center text-sm">
                         {index + 1}
                       </TableCell>
                       <TableCell>
                         {editingId === observation.id ? (
                           <div className="space-y-2">
-                            <Input
-                              ref={inputRef}
-                              value={editDescription}
-                              onChange={(e) =>
-                                setEditDescription(e.target.value)
-                              }
-                              onKeyDown={handleKeyPress}
-                              className="w-full h-10 border-2 border-blue-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all duration-200 text-sm"
-                              disabled={isLoading}
-                              placeholder="Describe observación... (Enter para guardar)"
-                            />
                             <Popover>
                               <PopoverTrigger asChild>
                                 <Button
@@ -296,7 +256,7 @@ export default function ObservationsTable({
                                   <div className="flex flex-wrap gap-1 flex-1 min-w-0">
                                     {selectedOptions.length === 0 ? (
                                       <span className="text-muted-foreground">
-                                        Opciones...
+                                        Seleccionar opción...
                                       </span>
                                     ) : (
                                       selectedOptions.map((optionId) => {
@@ -307,7 +267,7 @@ export default function ObservationsTable({
                                           <Badge
                                             key={optionId}
                                             variant="secondary"
-                                            className="text-xs px-1 py-0 group cursor-pointer hover:bg-secondary-foreground/20"
+                                            className="text-xs px-1 py-0 group cursor-pointer hover:bg-muted"
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               handleOptionChange(
@@ -325,7 +285,7 @@ export default function ObservationsTable({
                                                   false
                                                 );
                                               }}
-                                              className="ml-1 hover:bg-secondary-foreground/20 rounded-full p-0.5 cursor-pointer"
+                                              className="ml-1 hover:bg-muted rounded-full p-0.5 cursor-pointer"
                                               title={`Remove ${option?.name} option`}
                                               aria-label={`Remove ${option?.name} option`}
                                               role="button"
@@ -378,12 +338,13 @@ export default function ObservationsTable({
                                             )
                                           }
                                         >
-                                          <Checkbox
-                                            checked={selectedOptions.includes(
+                                          <div className="w-4 h-4 rounded-full border-2 border-gray-300 flex items-center justify-center">
+                                            {selectedOptions.includes(
                                               option.id
+                                            ) && (
+                                              <div className="w-2 h-2 rounded-full bg-primary"></div>
                                             )}
-                                            onChange={() => {}} // Handled by parent onClick
-                                          />
+                                          </div>
                                           <span className="text-sm">
                                             {option.name}
                                           </span>
@@ -394,9 +355,6 @@ export default function ObservationsTable({
                                 </div>
                               </PopoverContent>
                             </Popover>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>💡 Enter: guardar, Esc: cancelar</span>
-                            </div>
                           </div>
                         ) : (
                           <div
@@ -404,19 +362,16 @@ export default function ObservationsTable({
                             className="cursor-pointer p-1.5 sm:p-2 rounded-lg border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-all duration-200 min-h-[2rem] sm:min-h-[2.5rem] flex items-center group"
                           >
                             <div className="flex-1 min-w-0">
-                              {observation.option_ids && (
+                              {observation.project_observation_option_id && (
                                 <div className="flex flex-wrap gap-1 mt-1">
-                                  {getOptionNames(observation.option_ids).map(
-                                    (name, index) => (
-                                      <Badge
-                                        key={index}
-                                        variant="secondary"
-                                        className="text-xs"
-                                      >
-                                        {name}
-                                      </Badge>
-                                    )
-                                  )}
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-xs"
+                                  >
+                                    {getOptionName(
+                                      observation.project_observation_option_id
+                                    )}
+                                  </Badge>
                                 </div>
                               )}
                             </div>
@@ -522,10 +477,27 @@ export default function ObservationsTable({
                       </TableCell>
                     </TableRow>
                   ))}
+                  {/* Fill remaining rows to maintain fixed height */}
+                  {Array.from({
+                    length: Math.max(0, 10 - paginatedObservations.length),
+                  }).map((_, index) => (
+                    <TableRow key={`empty-${index}`} className="h-12">
+                      <TableCell colSpan={6} className="h-12"></TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
           )}
+
+          {/* Pagination */}
+          <div className="mt-4">
+            <PaginationWrapper
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={goToPage}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
