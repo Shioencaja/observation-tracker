@@ -379,7 +379,7 @@ function SessionsContent() {
     setDeleteDialogOpen(true);
   };
 
-  const handleExportSession = () => {
+  const handleExportSession = (sessionId: string) => {
     // Check if user is the project creator
     if (user?.id !== project?.created_by) {
       showToast("No tienes permisos para exportar sesiones", "error");
@@ -684,6 +684,7 @@ function SessionsContent() {
   const confirmDeleteSession = async () => {
     if (!sessionToDelete || !user) return;
 
+    console.log("🗑️ Starting session deletion:", sessionToDelete);
     try {
       // First, get all observations to extract voice recording URLs
       const { data: observations, error: fetchError } = await supabase
@@ -753,6 +754,7 @@ function SessionsContent() {
       }
 
       // Then delete the session
+      console.log("🗑️ Deleting session from database:", sessionToDelete);
       const { error: sessionError } = await supabase
         .from("sessions")
         .delete()
@@ -764,6 +766,8 @@ function SessionsContent() {
         showToast("Error al eliminar la sesión", "error");
         return;
       }
+
+      console.log("✅ Session deleted successfully");
 
       // Reload sessions
       await loadSessionsData();
@@ -992,7 +996,10 @@ function SessionsContent() {
                                   >
                                     {/* Export button - Only for project creators */}
                                     <DropdownMenuItem
-                                      onClick={handleExportSession}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleExportSession(session.id);
+                                      }}
                                     >
                                       <Download className="mr-2 h-4 w-4" />
                                       Exportar sesión
@@ -1000,9 +1007,10 @@ function SessionsContent() {
                                     <DropdownMenuSeparator />
                                     {/* Delete button - Only for project creators */}
                                     <DropdownMenuItem
-                                      onClick={() =>
-                                        handleDeleteSession(session.id)
-                                      }
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteSession(session.id);
+                                      }}
                                       className="text-red-600 focus:text-red-600"
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
@@ -1097,7 +1105,10 @@ function SessionsContent() {
                                     >
                                       {/* Export button - Only for project creators */}
                                       <DropdownMenuItem
-                                        onClick={handleExportSession}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleExportSession(session.id);
+                                        }}
                                       >
                                         <Download className="mr-2 h-4 w-4" />
                                         Exportar sesión
@@ -1105,9 +1116,10 @@ function SessionsContent() {
                                       <DropdownMenuSeparator />
                                       {/* Delete button - Only for project creators */}
                                       <DropdownMenuItem
-                                        onClick={() =>
-                                          handleDeleteSession(session.id)
-                                        }
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteSession(session.id);
+                                        }}
                                         className="text-red-600 focus:text-red-600"
                                       >
                                         <Trash2 className="mr-2 h-4 w-4" />
