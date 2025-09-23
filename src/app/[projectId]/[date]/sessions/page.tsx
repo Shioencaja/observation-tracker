@@ -352,6 +352,12 @@ function DateSessionsPageContent() {
 
   // Delete session function
   const handleDeleteSession = (sessionId: string) => {
+    // Check if user is the project creator
+    if (user?.id !== project?.created_by) {
+      showToast("No tienes permisos para eliminar sesiones", "error");
+      return;
+    }
+
     setSessionToDelete(sessionId);
     setDeleteDialogOpen(true);
   };
@@ -675,6 +681,7 @@ function DateSessionsPageContent() {
                 selectedSessionId={selectedSessionId}
                 onSessionSelect={handleSessionSelect}
                 onDeleteSession={handleDeleteSession}
+                isProjectCreatorUser={user?.id === project?.created_by}
               />
             </CollapsibleContent>
           </Collapsible>

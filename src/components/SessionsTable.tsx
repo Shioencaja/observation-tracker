@@ -148,20 +148,22 @@ export default function SessionsTable({
                       </TableCell>
                       <TableCell className="px-2 py-1">
                         <div className="flex justify-center">
-                          {status.label === "Completada" && onDeleteSession && (
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteSession(session.id);
-                              }}
-                              title="Eliminar sesión"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          )}
+                          {status.label === "Completada" &&
+                            onDeleteSession &&
+                            isProjectCreatorUser && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                className="h-6 w-6 p-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteSession(session.id);
+                                }}
+                                title="Eliminar sesión"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            )}
                         </div>
                       </TableCell>
                     </TableRow>

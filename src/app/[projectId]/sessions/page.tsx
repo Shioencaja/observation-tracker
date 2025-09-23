@@ -369,6 +369,12 @@ function SessionsContent() {
 
   // Handle session actions
   const handleDeleteSession = (sessionId: string) => {
+    // Check if user is the project creator
+    if (user?.id !== project?.created_by) {
+      showToast("No tienes permisos para eliminar sesiones", "error");
+      return;
+    }
+
     setSessionToDelete(sessionId);
     setDeleteDialogOpen(true);
   };
@@ -967,42 +973,44 @@ function SessionsContent() {
                                   ? "⏳"
                                   : "○"}
                               </Badge>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-6 w-6 p-0"
-                                    onClick={(e) => e.stopPropagation()}
+                              {/* Only show three-dot menu if user is project creator */}
+                              {user?.id === project?.created_by && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    align="end"
+                                    className="w-48"
                                   >
-                                    <MoreVertical className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                  align="end"
-                                  className="w-48"
-                                >
-                                  {/* Export button - Only for project creators */}
-                                  {user?.id === project?.created_by && (
+                                    {/* Export button - Only for project creators */}
                                     <DropdownMenuItem
                                       onClick={handleExportSession}
                                     >
                                       <Download className="mr-2 h-4 w-4" />
                                       Exportar sesión
                                     </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleDeleteSession(session.id)
-                                    }
-                                    className="text-red-600 focus:text-red-600"
-                                  >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Eliminar sesión
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                                    <DropdownMenuSeparator />
+                                    {/* Delete button - Only for project creators */}
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleDeleteSession(session.id)
+                                      }
+                                      className="text-red-600 focus:text-red-600"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Eliminar sesión
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1070,42 +1078,46 @@ function SessionsContent() {
                                 </Badge>
                               </TableCell>
                               <TableCell>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={(e) => e.stopPropagation()}
+                                {/* Only show three-dot menu if user is project creator */}
+                                {user?.id === project?.created_by ? (
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 w-8 p-0"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <MoreVertical className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="end"
+                                      className="w-48"
                                     >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent
-                                    align="end"
-                                    className="w-48"
-                                  >
-                                    {/* Export button - Only for project creators */}
-                                    {user?.id === project?.created_by && (
+                                      {/* Export button - Only for project creators */}
                                       <DropdownMenuItem
                                         onClick={handleExportSession}
                                       >
                                         <Download className="mr-2 h-4 w-4" />
                                         Exportar sesión
                                       </DropdownMenuItem>
-                                    )}
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleDeleteSession(session.id)
-                                      }
-                                      className="text-red-600 focus:text-red-600"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Eliminar sesión
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                      <DropdownMenuSeparator />
+                                      {/* Delete button - Only for project creators */}
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          handleDeleteSession(session.id)
+                                        }
+                                        className="text-red-600 focus:text-red-600"
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Eliminar sesión
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                ) : (
+                                  <div className="h-8 w-8"></div>
+                                )}
                               </TableCell>
                             </TableRow>
                           );

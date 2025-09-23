@@ -323,6 +323,12 @@ export default function SessionDetailsPage() {
 
   // Delete session functions
   const handleDeleteSession = () => {
+    // Check if user is the project creator
+    if (currentUser?.id !== project?.created_by) {
+      showToast("No tienes permisos para eliminar sesiones", "error");
+      return;
+    }
+
     setDeleteDialogOpen(true);
   };
 
@@ -827,14 +833,20 @@ export default function SessionDetailsPage() {
                     Exportar sesión
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleDeleteSession}
-                  className="text-red-600 focus:text-red-600"
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Eliminar sesión
-                </DropdownMenuItem>
+                {/* Only show separator if there are creator-only buttons */}
+                {currentUser?.id === project?.created_by && (
+                  <DropdownMenuSeparator />
+                )}
+                {/* Delete button - Only for project creators */}
+                {currentUser?.id === project?.created_by && (
+                  <DropdownMenuItem
+                    onClick={handleDeleteSession}
+                    className="text-red-600 focus:text-red-600"
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Eliminar sesión
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
