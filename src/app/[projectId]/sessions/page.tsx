@@ -13,6 +13,7 @@ import {
   MoreVertical,
   Trash2,
   Download,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -288,6 +289,32 @@ function SessionsContent() {
     }
   }, [authLoading, user, projectId, router, loadSessionsData]);
 
+  // Reload data when page becomes visible (user navigates back)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user && projectId) {
+        console.log("🔄 Page became visible, reloading sessions data");
+        loadSessionsData();
+      }
+    };
+
+    const handleFocus = () => {
+      if (user && projectId) {
+        console.log("🔄 Window focused, reloading sessions data");
+        loadSessionsData();
+      }
+    };
+
+    // Listen for page visibility changes and window focus
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [user, projectId, loadSessionsData]);
+
   if (isLoading || authLoading) {
     return <FullPageLoading text="Cargando sesiones..." />;
   }
@@ -301,7 +328,14 @@ function SessionsContent() {
             <CardDescription>{error}</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => loadSessionsData()}>Reintentar</Button>
+            <Button
+              onClick={() => {
+                sessionsCache.delete(projectId);
+                loadSessionsData();
+              }}
+            >
+              Reintentar
+            </Button>
             <Button
               variant="link"
               onClick={() => router.push("/projects")}
@@ -518,6 +552,31 @@ function SessionsContent() {
         .in("session_id", sessionIds)
         .order("created_at", { ascending: true });
 
+      // Get user emails for all session creators using the same approach as create project
+      const uniqueUserIds = Array.from(
+        new Set(filteredSessions.map((session) => session.user_id))
+      );
+
+      // Use the same RPC function as create project page
+      const { data: usersData, error: usersError } = await supabase.rpc(
+        "get_all_users"
+      );
+
+      if (usersError) {
+        console.error("Error loading users:", usersError);
+        showToast("Error al cargar los usuarios", "error");
+        return;
+      }
+
+      // Create a map of user_id to email
+      const userEmailMap = new Map<string, string>();
+      (usersData || []).forEach((user: { user_id: string; email: string }) => {
+        userEmailMap.set(
+          user.user_id,
+          user.email || `Usuario ${user.user_id.substring(0, 8)}`
+        );
+      });
+
       if (obsError) {
         console.error("Error loading observations:", obsError);
         showToast("Error al cargar las observaciones", "error");
@@ -600,9 +659,10 @@ function SessionsContent() {
             .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
         }
 
-        // Get user email or truncated ID
+        // Get session creator's email or truncated ID
         const userEmail =
-          user?.email || `Usuario ${session.user_id.substring(0, 8)}`;
+          userEmailMap.get(session.user_id) ||
+          `Usuario ${session.user_id.substring(0, 8)}`;
 
         // Get observations for this session
         const sessionObservations = observationsBySession[session.id] || [];
@@ -686,16 +746,65 @@ function SessionsContent() {
 
     console.log("🗑️ Starting session deletion:", sessionToDelete);
     try {
-      // First, get all observations to extract voice recording URLs
+      // First, verify the session exists and belongs to the project
+      const { data: sessionData, error: sessionCheckError } = await supabase
+        .from("sessions")
+        .select("id, user_id, project_id, end_time")
+        .eq("id", sessionToDelete)
+        .eq("project_id", project.id) // Ensure session belongs to this project
+        .single();
+
+      if (sessionCheckError) {
+        console.error("Error checking session:", sessionCheckError);
+        if (sessionCheckError.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(
+            `Error al verificar la sesión: ${sessionCheckError.message}`,
+            "error"
+          );
+        }
+        return;
+      }
+
+      // Project creator can delete any session in their project
+      // No need to check if sessionData.user_id === user.id
+
+      // If session is not ended, end it first before deletion
+      if (!sessionData.end_time) {
+        console.log(
+          "⏹️ Session is not ended, ending it first:",
+          sessionToDelete
+        );
+        const { error: endSessionError } = await supabase
+          .from("sessions")
+          .update({ end_time: new Date().toISOString() })
+          .eq("id", sessionToDelete)
+          .eq("project_id", project.id);
+
+        if (endSessionError) {
+          console.error("Error ending session:", endSessionError);
+          showToast(
+            `Error al finalizar la sesión antes de eliminar: ${endSessionError.message}`,
+            "error"
+          );
+          return;
+        }
+        console.log("✅ Session ended successfully before deletion");
+      }
+
+      // Get all observations to extract voice recording URLs
       const { data: observations, error: fetchError } = await supabase
         .from("observations")
         .select("response")
-        .eq("session_id", sessionToDelete)
-        .eq("user_id", user.id);
+        .eq("session_id", sessionToDelete);
 
       if (fetchError) {
         console.error("Error fetching observations:", fetchError);
-        showToast("Error al obtener las observaciones", "error");
+        showToast(
+          `Error al obtener las observaciones: ${fetchError.message}`,
+          "error"
+        );
         return;
       }
 
@@ -733,7 +842,7 @@ function SessionsContent() {
           if (storageError) {
             console.error("Error deleting voice recordings:", storageError);
             showToast(
-              "Advertencia: No se pudieron eliminar algunas grabaciones de voz",
+              `Advertencia: No se pudieron eliminar las grabaciones de voz. Razón: ${storageError.message}`,
               "warning"
             );
           }
@@ -744,12 +853,26 @@ function SessionsContent() {
       const { error: obsError } = await supabase
         .from("observations")
         .delete()
-        .eq("session_id", sessionToDelete)
-        .eq("user_id", user.id);
+        .eq("session_id", sessionToDelete);
 
       if (obsError) {
         console.error("Error deleting observations:", obsError);
-        showToast("Error al eliminar las observaciones", "error");
+        if (obsError.code === "23503") {
+          showToast(
+            "No se pueden eliminar las observaciones debido a restricciones de integridad de datos",
+            "error"
+          );
+        } else if (obsError.code === "42501") {
+          showToast(
+            "No tienes permisos para eliminar las observaciones de este proyecto",
+            "error"
+          );
+        } else {
+          showToast(
+            `Error al eliminar las observaciones: ${obsError.message}`,
+            "error"
+          );
+        }
         return;
       }
 
@@ -759,25 +882,56 @@ function SessionsContent() {
         .from("sessions")
         .delete()
         .eq("id", sessionToDelete)
-        .eq("user_id", user.id);
+        .eq("project_id", project.id); // Ensure session belongs to this project
 
       if (sessionError) {
         console.error("Error deleting session:", sessionError);
-        showToast("Error al eliminar la sesión", "error");
+        if (sessionError.code === "23503") {
+          showToast(
+            "No se puede eliminar la sesión debido a restricciones de integridad de datos",
+            "error"
+          );
+        } else if (sessionError.code === "42501") {
+          showToast(
+            "No tienes permisos para eliminar sesiones en este proyecto",
+            "error"
+          );
+        } else if (sessionError.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(
+            `Error al eliminar la sesión: ${sessionError.message}`,
+            "error"
+          );
+        }
         return;
       }
 
       console.log("✅ Session deleted successfully");
 
+      // Clear cache to ensure fresh data is loaded
+      sessionsCache.delete(projectId);
+      console.log("🗑️ Cache cleared for project:", projectId);
+
       // Reload sessions
       await loadSessionsData();
       showToast(
-        "Sesión y todas sus observaciones eliminadas exitosamente",
+        "Sesión finalizada y eliminada exitosamente junto con todas sus observaciones",
         "success"
       );
     } catch (error) {
       console.error("Unexpected error deleting session:", error);
-      showToast("Error inesperado al eliminar la sesión", "error");
+      if (error instanceof Error) {
+        showToast(
+          `Error inesperado al eliminar la sesión: ${error.message}`,
+          "error"
+        );
+      } else {
+        showToast(
+          "Error inesperado al eliminar la sesión. Intenta nuevamente.",
+          "error"
+        );
+      }
     } finally {
       setDeleteDialogOpen(false);
       setSessionToDelete(null);
@@ -799,13 +953,32 @@ function SessionsContent() {
               <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
               <span className="hidden sm:inline">Volver</span>
             </Button>
-            <div className="text-right">
+            <div className="text-right flex-1">
               <p className="text-xs text-muted-foreground mb-1">
                 Sesiones del proyecto
               </p>
-              <h1 className="text-base sm:text-xl font-semibold text-foreground truncate">
-                {project.name}
-              </h1>
+              <div className="flex items-center justify-end gap-2">
+                <h1 className="text-base sm:text-xl font-semibold text-foreground truncate">
+                  {project.name}
+                </h1>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    sessionsCache.delete(projectId);
+                    loadSessionsData();
+                  }}
+                  disabled={isLoading}
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  title="Actualizar lista"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Search className="h-3 w-3" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

@@ -98,6 +98,7 @@ export default function SessionDetailsPage() {
   const [project, setProject] = useState<any>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isFinishing, setIsFinishing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [toasts, setToasts] = useState<
     Array<{
@@ -122,6 +123,51 @@ export default function SessionDetailsPage() {
 
   const removeToast = (id: string) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  };
+
+  // Finish session function
+  const handleFinishSession = async () => {
+    if (!currentSession || !currentUser) return;
+
+    // Check if user is the project creator
+    if (currentUser.id !== project?.created_by) {
+      showToast("No tienes permisos para finalizar sesiones", "error");
+      return;
+    }
+
+    // Check if session is already finished
+    if (currentSession.end_time) {
+      showToast("Esta sesión ya está finalizada", "info");
+      return;
+    }
+
+    setIsFinishing(true);
+    try {
+      const { error } = await supabase
+        .from("sessions")
+        .update({ end_time: new Date().toISOString() })
+        .eq("id", currentSession.id)
+        .eq("user_id", currentUser.id);
+
+      if (error) {
+        console.error("Error finishing session:", error);
+        showToast("Error al finalizar la sesión", "error");
+        return;
+      }
+
+      // Update local session state
+      setSession({
+        ...currentSession,
+        end_time: new Date().toISOString(),
+      });
+
+      showToast("Sesión finalizada exitosamente", "success");
+    } catch (error) {
+      console.error("Unexpected error finishing session:", error);
+      showToast("Error inesperado al finalizar la sesión", "error");
+    } finally {
+      setIsFinishing(false);
+    }
   };
 
   // Debug authentication
@@ -826,6 +872,21 @@ export default function SessionDetailsPage() {
                   <Info className="mr-2 h-4 w-4" />
                   Información
                 </DropdownMenuItem>
+                {/* Finish session button - Only for project creators and if session is not finished */}
+                {currentUser?.id === project?.created_by && !currentSession?.end_time && (
+                  <DropdownMenuItem 
+                    onClick={handleFinishSession}
+                    disabled={isFinishing}
+                    className="text-green-600 focus:text-green-600"
+                  >
+                    {isFinishing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Clock className="mr-2 h-4 w-4" />
+                    )}
+                    {isFinishing ? "Finalizando..." : "Finalizar sesión"}
+                  </DropdownMenuItem>
+                )}
                 {/* Export button - Only for project creators */}
                 {currentUser?.id === project?.created_by && (
                   <DropdownMenuItem onClick={exportSessionAnswers}>
@@ -883,6 +944,20 @@ export default function SessionDetailsPage() {
                       <p className="font-medium text-xs sm:text-sm truncate">
                         {user?.email || currentSession.user_id.substring(0, 8)}
                       </p>
+                    </div>
+                  </div>
+
+                  {/* Session Status Badge */}
+                  <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                    <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-muted-foreground">Estado</p>
+                      <Badge 
+                        variant={currentSession?.end_time ? "secondary" : "default"}
+                        className="text-xs"
+                      >
+                        {currentSession?.end_time ? "Finalizada" : "Activa"}
+                      </Badge>
                     </div>
                   </div>
                 </div>
