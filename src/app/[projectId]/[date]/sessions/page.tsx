@@ -195,9 +195,13 @@ function DateSessionsPageContent() {
 
   // Load sessions data
   const loadAllSessions = useCallback(async () => {
-    if (!user || !project || !selectedDate) return;
+    if (!user || !project || !selectedDate) {
+      console.log("🚫 Skipping loadAllSessions:", { user: !!user, project: !!project, selectedDate });
+      return;
+    }
 
     try {
+      console.log("🔄 Loading sessions for:", { projectId: project.id, selectedDate, selectedAgency });
       setIsLoading(true);
 
       // Get sessions for the selected date (using local timezone)
@@ -351,15 +355,23 @@ function DateSessionsPageContent() {
   }, [project, loadObservationOptions]);
 
   useEffect(() => {
+    console.log("🔄 Sessions useEffect triggered:", { 
+      project: !!project, 
+      selectedDate, 
+      skipNextLoad,
+      selectedAgency 
+    });
+    
     // Load sessions when project and date are available
     if (project && selectedDate && !skipNextLoad) {
+      console.log("✅ Calling loadAllSessions");
       loadAllSessions();
     }
     // Reset skip flag after use
     if (skipNextLoad) {
       setSkipNextLoad(false);
     }
-  }, [project, selectedDate, loadAllSessions, skipNextLoad]);
+  }, [project, selectedDate, selectedAgency, skipNextLoad]); // Removed loadAllSessions from dependencies
 
   // Create new session
   const createNewSession = async () => {
@@ -377,7 +389,7 @@ function DateSessionsPageContent() {
         .insert({
           user_id: user.id,
           project_id: project.id,
-          agency: selectedAgency || null,
+          agency: selectedAgency || null, // Use 'agency' field as it exists in database
           start_time: selectedDateTime.toISOString(),
         })
         .select()
@@ -449,7 +461,32 @@ function DateSessionsPageContent() {
     console.log("🗑️ Starting session deletion:", sessionToDelete);
     setIsDeletingSession(true);
     try {
-      // First, get all observations to extract voice recording URLs
+      // First, verify the session exists and user has permission
+      const { data: sessionData, error: sessionCheckError } = await supabase
+        .from("sessions")
+        .select("id, user_id, project_id")
+        .eq("id", sessionToDelete)
+        .single();
+
+      if (sessionCheckError) {
+        console.error("Error checking session:", sessionCheckError);
+        if (sessionCheckError.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(
+            `Error al verificar la sesión: ${sessionCheckError.message}`,
+            "error"
+          );
+        }
+        return;
+      }
+
+      if (sessionData.user_id !== user.id) {
+        showToast("No tienes permisos para eliminar esta sesión", "error");
+        return;
+      }
+
+      // Get all observations to extract voice recording URLs
       const { data: observations, error: fetchError } = await supabase
         .from("observations")
         .select("response")
@@ -458,7 +495,10 @@ function DateSessionsPageContent() {
 
       if (fetchError) {
         console.error("Error fetching observations:", fetchError);
-        showToast("Error al obtener las observaciones", "error");
+        showToast(
+          `Error al obtener las observaciones: ${fetchError.message}`,
+          "error"
+        );
         return;
       }
 
@@ -493,7 +533,7 @@ function DateSessionsPageContent() {
             console.error("Error deleting voice recordings:", storageError);
             // Continue with session deletion even if storage deletion fails
             showToast(
-              "Advertencia: No se pudieron eliminar algunas grabaciones de voz",
+              `Advertencia: No se pudieron eliminar las grabaciones de voz. Razón: ${storageError.message}`,
               "warning"
             );
           }
@@ -509,7 +549,22 @@ function DateSessionsPageContent() {
 
       if (obsError) {
         console.error("Error deleting observations:", obsError);
-        showToast("Error al eliminar las observaciones", "error");
+        if (obsError.code === "23503") {
+          showToast(
+            "No se pueden eliminar las observaciones debido a restricciones de integridad de datos",
+            "error"
+          );
+        } else if (obsError.code === "42501") {
+          showToast(
+            "No tienes permisos para eliminar las observaciones",
+            "error"
+          );
+        } else {
+          showToast(
+            `Error al eliminar las observaciones: ${obsError.message}`,
+            "error"
+          );
+        }
         return;
       }
 
@@ -522,7 +577,21 @@ function DateSessionsPageContent() {
 
       if (sessionError) {
         console.error("Error deleting session:", sessionError);
-        showToast("Error al eliminar la sesión", "error");
+        if (sessionError.code === "23503") {
+          showToast(
+            "No se puede eliminar la sesión debido a restricciones de integridad de datos",
+            "error"
+          );
+        } else if (sessionError.code === "42501") {
+          showToast("No tienes permisos para eliminar esta sesión", "error");
+        } else if (sessionError.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(
+            `Error al eliminar la sesión: ${sessionError.message}`,
+            "error"
+          );
+        }
         return;
       }
 
@@ -550,7 +619,17 @@ function DateSessionsPageContent() {
       }
     } catch (error) {
       console.error("Unexpected error deleting session:", error);
-      showToast("Error inesperado al eliminar la sesión", "error");
+      if (error instanceof Error) {
+        showToast(
+          `Error inesperado al eliminar la sesión: ${error.message}`,
+          "error"
+        );
+      } else {
+        showToast(
+          "Error inesperado al eliminar la sesión. Intenta nuevamente.",
+          "error"
+        );
+      }
     } finally {
       console.log("✅ Session deletion process completed");
       setDeleteDialogOpen(false);
