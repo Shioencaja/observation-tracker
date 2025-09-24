@@ -46,8 +46,18 @@ export default function QuestionRenderer({
     disabled,
   };
 
+  // Debug logging for question types
+  console.log('🔍 QuestionRenderer Debug:', {
+    questionId: question.id,
+    questionName: question.name,
+    questionType: question.question_type,
+    options: question.options,
+    value: value
+  });
+
   switch (question.question_type) {
     case "text":
+    case "string": // Handle both 'text' and 'string' question types
       return (
         <TextQuestion
           {...commonProps}
@@ -75,10 +85,24 @@ export default function QuestionRenderer({
       );
 
     case "multiple_choice":
+    case "radio": // Handle both 'multiple_choice' and 'radio' question types
+      // Set first option as default if no value is selected
+      const defaultValue =
+        value ||
+        (question.options && question.options.length > 0
+          ? question.options[0]
+          : "");
+
+      // If no value is set and we have options, automatically select the first one
+      if (!value && question.options && question.options.length > 0) {
+        // Use setTimeout to avoid state update during render
+        setTimeout(() => onChange(question.options[0]), 0);
+      }
+
       return (
         <MultipleChoiceQuestion
           {...commonProps}
-          value={value || ""}
+          value={defaultValue}
           onChange={onChange}
           options={question.options}
         />

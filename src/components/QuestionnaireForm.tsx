@@ -74,6 +74,13 @@ export default function QuestionnaireForm({
     options: option.options || [],
   }));
 
+  // Debug logging for observation options
+  console.log('🔍 QuestionnaireForm Debug:', {
+    observationOptions: observationOptions,
+    convertedQuestions: convertedQuestions,
+    displayQuestions: displayQuestions
+  });
+
   // Use converted questions if no questions prop provided
   const displayQuestions =
     questions.length > 0 ? questions : convertedQuestions;
