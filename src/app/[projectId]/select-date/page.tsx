@@ -76,14 +76,12 @@ function DateSelectorPageContent() {
         const validation = await validateProjectAccess(projectId);
 
         if (!validation.hasAccess) {
-          setAuthError(validation.error || "Error de autenticación");
-          redirectToLogin();
-          return;
-        }
-
-        if (!validation.hasAccess) {
           setAuthError(validation.error || "Sin acceso al proyecto");
-          redirectToProjects();
+          if (validation.error === "Usuario no autenticado") {
+            redirectToLogin();
+          } else {
+            redirectToProjects();
+          }
           return;
         }
 
@@ -96,6 +94,24 @@ function DateSelectorPageContent() {
             validation.project.agencies.length > 0
           ) {
             setSelectedAgency(validation.project.agencies[0]);
+          }
+        } else {
+          // Fallback: load project data separately if not returned from validation
+          const { data: projectData, error: projectError } = await supabase
+            .from("projects")
+            .select("id, name, description, agencies, created_at, updated_at")
+            .eq("id", projectId)
+            .single();
+
+          if (projectError || !projectData) {
+            setAuthError("Error cargando datos del proyecto");
+            redirectToProjects();
+            return;
+          }
+
+          setProject(projectData);
+          if (projectData.agencies && projectData.agencies.length > 0) {
+            setSelectedAgency(projectData.agencies[0]);
           }
         }
       } catch (error) {

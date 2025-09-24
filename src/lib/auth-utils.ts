@@ -147,7 +147,7 @@ export const validateProjectAccess = async (projectId: string) => {
     // Check if user has access to the project
     const { data: project, error } = await supabase
       .from("projects")
-      .select("id, name, created_by")
+      .select("id, name, description, created_by, agencies, created_at, updated_at")
       .eq("id", projectId)
       .single();
 
@@ -160,7 +160,7 @@ export const validateProjectAccess = async (projectId: string) => {
 
     // Check if user is the creator
     if (project.created_by === user.id) {
-      return { hasAccess: true };
+      return { hasAccess: true, project };
     }
 
     // Check if user has been explicitly added to the project
@@ -172,7 +172,7 @@ export const validateProjectAccess = async (projectId: string) => {
       .single();
 
     if (!projectUserError && projectUser) {
-      return { hasAccess: true };
+      return { hasAccess: true, project };
     }
 
     return {
