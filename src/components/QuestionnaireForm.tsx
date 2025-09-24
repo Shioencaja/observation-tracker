@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tables } from "@/types/supabase";
 import QuestionRenderer from "./questions/QuestionRenderer";
 import { observationService } from "@/services/observation-service";
+import { questionService } from "@/services/question-service";
+import { useToast } from "@/hooks/use-toast";
 
 interface Question {
   id: string;
@@ -43,6 +45,13 @@ interface QuestionnaireFormProps {
   // Props for empty state
   onCreateSession?: () => Promise<void>;
   isCreatingSession?: boolean;
+  // Props for question management
+  onQuestionUpdated?: (question: Tables<"project_observation_options">) => void;
+  onQuestionDeleted?: (questionId: string) => void;
+  onQuestionDuplicated?: (
+    question: Tables<"project_observation_options">
+  ) => void;
+  canManageQuestions?: boolean;
 }
 
 export default function QuestionnaireForm({
@@ -55,6 +64,10 @@ export default function QuestionnaireForm({
   onFinishSession,
   onCreateSession,
   isCreatingSession = false,
+  onQuestionUpdated,
+  onQuestionDeleted,
+  onQuestionDuplicated,
+  canManageQuestions = false,
   ...otherProps
 }: QuestionnaireFormProps) {
   const [responses, setResponses] = useState<Record<string, any>>({});
@@ -62,11 +75,17 @@ export default function QuestionnaireForm({
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const { toast } = useToast();
   const [isFinishing, setIsFinishing] = useState(false);
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<Record<string, any>>({});
 
   // Convert observation options to questions format
+  console.log("🔄 Converting observation options to questions:", {
+    observationOptionsCount: observationOptions.length,
+    questionsCount: questions.length
+  });
+  
   const convertedQuestions: Question[] = observationOptions.map((option) => ({
     id: option.id,
     name: option.name,
@@ -74,16 +93,14 @@ export default function QuestionnaireForm({
     options: option.options || [],
   }));
 
-  // Debug logging for observation options
-  console.log('🔍 QuestionnaireForm Debug:', {
-    observationOptions: observationOptions,
-    convertedQuestions: convertedQuestions,
-    displayQuestions: displayQuestions
-  });
-
   // Use converted questions if no questions prop provided
   const displayQuestions =
     questions.length > 0 ? questions : convertedQuestions;
+    
+  console.log("✅ Display questions prepared:", {
+    displayQuestionsCount: displayQuestions.length,
+    questionTypes: displayQuestions.map(q => q.question_type)
+  });
 
   // Auto-save function
   const autoSave = useCallback(async () => {
@@ -210,6 +227,34 @@ export default function QuestionnaireForm({
     }
   };
 
+  // Question management handlers
+  const handleQuestionUpdated = useCallback(
+    async (question: Tables<"project_observation_options">) => {
+      if (onQuestionUpdated) {
+        onQuestionUpdated(question);
+      }
+    },
+    [onQuestionUpdated]
+  );
+
+  const handleQuestionDeleted = useCallback(
+    async (questionId: string) => {
+      if (onQuestionDeleted) {
+        onQuestionDeleted(questionId);
+      }
+    },
+    [onQuestionDeleted]
+  );
+
+  const handleQuestionDuplicated = useCallback(
+    async (question: Tables<"project_observation_options">) => {
+      if (onQuestionDuplicated) {
+        onQuestionDuplicated(question);
+      }
+    },
+    [onQuestionDuplicated]
+  );
+
   // Save changes when session changes (cleanup effect)
   useEffect(() => {
     return () => {
@@ -302,17 +347,38 @@ export default function QuestionnaireForm({
   // Manual save is now handled by auto-save, so we don't need handleSubmit
 
   const renderQuestion = (question: Question) => {
-    return (
-      <div key={question.id}>
-        <QuestionRenderer
-          question={question}
-          value={responses[question.id]}
-          onChange={(value) => handleResponseChange(question.id, value)}
-          required={!isSessionFinished}
-          disabled={isSessionFinished}
-        />
-      </div>
-    );
+    console.log("🔄 Rendering question in QuestionnaireForm:", {
+      questionId: question.id,
+      questionName: question.name,
+      questionType: question.question_type
+    });
+    
+    try {
+      return (
+        <div key={question.id}>
+          <QuestionRenderer
+            question={question}
+            value={responses[question.id]}
+            onChange={(value) => handleResponseChange(question.id, value)}
+            required={!isSessionFinished}
+            disabled={isSessionFinished}
+          />
+        </div>
+      );
+    } catch (error) {
+      console.error("❌ Error in renderQuestion:", {
+        questionId: question.id,
+        questionName: question.name,
+        questionType: question.question_type,
+        error: error
+      });
+      
+      return (
+        <div key={question.id} className="p-4 border border-red-200 bg-red-50 rounded">
+          <p className="text-red-600">Error rendering question: {question.name}</p>
+        </div>
+      );
+    }
   };
 
   return (
@@ -374,7 +440,13 @@ export default function QuestionnaireForm({
           </div>
         ) : (
           <div className="space-y-6">
-            {displayQuestions.map(renderQuestion)}
+            {(() => {
+              console.log("🔄 About to render questions:", {
+                displayQuestionsCount: displayQuestions.length,
+                questionIds: displayQuestions.map(q => q.id)
+              });
+              return displayQuestions.map(renderQuestion);
+            })()}
 
             {!isSessionFinished && onFinishSession && (
               <div className="flex justify-center">
