@@ -58,22 +58,25 @@ export const isSessionValid = async (): Promise<boolean> => {
       data: { session },
       error,
     } = await supabase.auth.getSession();
-    
+
     if (error) {
       console.warn("⚠️ Session validation error:", error);
       return false;
     }
-    
+
     if (!session) {
       return false;
     }
-    
+
     // Check if session is expired
-    if (session.expires_at && new Date(session.expires_at * 1000) < new Date()) {
+    if (
+      session.expires_at &&
+      new Date(session.expires_at * 1000) < new Date()
+    ) {
       console.warn("⚠️ Session expired");
       return false;
     }
-    
+
     return true;
   } catch (error) {
     console.error("❌ Error checking session validity:", error);
@@ -96,12 +99,12 @@ export const getCurrentUser = async () => {
       data: { user },
       error,
     } = await supabase.auth.getUser();
-    
+
     if (error) {
       console.warn("⚠️ Error getting current user:", error);
       return null;
     }
-    
+
     return user;
   } catch (error) {
     console.error("❌ Error getting current user:", error);
@@ -155,29 +158,21 @@ export const validateProjectAccess = async (projectId: string) => {
       };
     }
 
-    // Check if user is the creator or has access through organization
+    // Check if user is the creator
     if (project.created_by === user.id) {
       return { hasAccess: true };
     }
 
-    // Check organization access (optional - user might not be in an organization)
-    const { data: orgAccess, error: orgError } = await supabase
-      .from("user_organizations")
-      .select("organization_id")
+    // Check if user has been explicitly added to the project
+    const { data: projectUser, error: projectUserError } = await supabase
+      .from("project_users")
+      .select("user_id")
+      .eq("project_id", projectId)
       .eq("user_id", user.id)
       .single();
 
-    // If user has organization access, check if project belongs to same organization
-    if (!orgError && orgAccess) {
-      const { data: projectOrg, error: projectOrgError } = await supabase
-        .from("projects")
-        .select("organization_id")
-        .eq("id", projectId)
-        .single();
-
-      if (!projectOrgError && projectOrg && orgAccess.organization_id === projectOrg.organization_id) {
-        return { hasAccess: true };
-      }
+    if (!projectUserError && projectUser) {
+      return { hasAccess: true };
     }
 
     return {
