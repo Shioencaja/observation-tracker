@@ -48,18 +48,6 @@ export default function QuestionRenderer({
 
   // Normalize question type to handle any whitespace or encoding issues
   const normalizedQuestionType = question.question_type?.trim().toLowerCase();
-  
-  // Debug logging for question types
-  console.log('🔍 QuestionRenderer Debug:', {
-    questionId: question.id,
-    questionName: question.name,
-    originalQuestionType: question.question_type,
-    normalizedQuestionType: normalizedQuestionType,
-    questionTypeLength: question.question_type?.length,
-    questionTypeCharCodes: question.question_type?.split('').map(c => c.charCodeAt(0)),
-    options: question.options,
-    value: value
-  });
 
   switch (normalizedQuestionType) {
     case "text":
