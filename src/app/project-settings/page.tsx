@@ -53,6 +53,7 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Project, ProjectObservationOption } from "@/types/observation";
+import QuestionManager from "@/components/QuestionManager";
 
 // Draggable Option Component
 interface DraggableOptionProps {
@@ -988,6 +989,32 @@ function ProjectSettingsPageContent() {
       setError("Error al eliminar la opción");
     }
   };
+
+  // New question management handlers
+  const handleQuestionUpdated = useCallback(
+    (updatedQuestion: ProjectObservationOption) => {
+      setOptions((prev) =>
+        prev.map((opt) =>
+          opt.id === updatedQuestion.id ? updatedQuestion : opt
+        )
+      );
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
+
+  const handleQuestionDeleted = useCallback((questionId: string) => {
+    setOptions((prev) => prev.filter((opt) => opt.id !== questionId));
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleQuestionDuplicated = useCallback(
+    (duplicatedQuestion: ProjectObservationOption) => {
+      setOptions((prev) => [...prev, duplicatedQuestion]);
+      setHasUnsavedChanges(true);
+    },
+    []
+  );
 
   const handleBackToProjects = () => {
     router.push("/projects");

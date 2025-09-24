@@ -77,15 +77,19 @@ export default function QuestionnaireForm({
   const [isAutoSaving, setIsAutoSaving] = useState(false);
   const { toast } = useToast();
   const [isFinishing, setIsFinishing] = useState(false);
+  const [isManualSaving, setIsManualSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<
+    Record<string, string>
+  >({});
   const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedRef = useRef<Record<string, any>>({});
 
   // Convert observation options to questions format
   console.log("🔄 Converting observation options to questions:", {
     observationOptionsCount: observationOptions.length,
-    questionsCount: questions.length
+    questionsCount: questions.length,
   });
-  
+
   const convertedQuestions: Question[] = observationOptions.map((option) => ({
     id: option.id,
     name: option.name,
@@ -96,10 +100,10 @@ export default function QuestionnaireForm({
   // Use converted questions if no questions prop provided
   const displayQuestions =
     questions.length > 0 ? questions : convertedQuestions;
-    
+
   console.log("✅ Display questions prepared:", {
     displayQuestionsCount: displayQuestions.length,
-    questionTypes: displayQuestions.map(q => q.question_type)
+    questionTypes: displayQuestions.map((q) => q.question_type),
   });
 
   // Auto-save function
@@ -206,18 +210,143 @@ export default function QuestionnaireForm({
     setHasChanges(hasActualChanges);
   }, [responses]);
 
+  // Validate all questions are answered (excluding timer, counter, and string)
+  const validateAllQuestions = useCallback(() => {
+    const errors: Record<string, string> = {};
+
+    displayQuestions.forEach((question) => {
+      // Skip validation for timer, counter, and string questions
+      if (["timer", "counter", "string"].includes(question.question_type)) {
+        return;
+      }
+
+      const response = responses[question.id];
+
+      // Check if question is required and not answered
+      if (
+        !response ||
+        (typeof response === "string" && response.trim() === "") ||
+        (Array.isArray(response) && response.length === 0) ||
+        response === null ||
+        response === undefined
+      ) {
+        errors[question.id] = `${question.name} es requerido`;
+      }
+    });
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [responses, displayQuestions]);
+
+  // Check if all required questions are answered (excluding timer, counter, and string)
+  const areAllQuestionsAnswered = useCallback(() => {
+    return displayQuestions.every((question) => {
+      // Skip validation for timer, counter, and string questions
+      if (["timer", "counter", "string"].includes(question.question_type)) {
+        return true;
+      }
+
+      const response = responses[question.id];
+      return (
+        response &&
+        !(typeof response === "string" && response.trim() === "") &&
+        !(Array.isArray(response) && response.length === 0) &&
+        response !== null &&
+        response !== undefined
+      );
+    });
+  }, [responses, displayQuestions]);
+
+  // Manual save function
+  const handleManualSave = async () => {
+    if (!selectedSessionId || isSessionFinished) return;
+
+    setIsManualSaving(true);
+    try {
+      // Validate all questions first
+      if (!validateAllQuestions()) {
+        toast({
+          title: "Error de validación",
+          description:
+            "Por favor completa todas las preguntas requeridas antes de guardar.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Save all responses
+      for (const [questionId, response] of Object.entries(responses)) {
+        if (response !== null && response !== undefined && response !== "") {
+          const responseString =
+            typeof response === "string" ? response : JSON.stringify(response);
+
+          const { error } = await observationService.upsertObservation({
+            session_id: selectedSessionId,
+            project_observation_option_id: questionId,
+            response: responseString,
+          });
+
+          if (error) {
+            console.error("Error saving observation:", error);
+            toast({
+              title: "Error al guardar",
+              description: `Error al guardar la pregunta: ${error.message}`,
+              variant: "destructive",
+            });
+            return;
+          }
+        }
+      }
+
+      // Update last saved state
+      lastSavedRef.current = { ...responses };
+      setHasChanges(false);
+      setValidationErrors({});
+
+      toast({
+        title: "Guardado exitoso",
+        description: "Todas las respuestas han sido guardadas correctamente.",
+        variant: "default",
+      });
+
+      console.log("✅ Manual save completed successfully");
+    } catch (error) {
+      console.error("Error during manual save:", error);
+      toast({
+        title: "Error al guardar",
+        description: "Ocurrió un error inesperado al guardar las respuestas.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsManualSaving(false);
+    }
+  };
+
   // Finish session function
   const handleFinishSession = async () => {
     if (!onFinishSession || isSessionFinished) return;
 
+    // First validate all questions are answered
+    if (!validateAllQuestions()) {
+      toast({
+        title: "No se puede finalizar la sesión",
+        description:
+          "Por favor completa todas las preguntas requeridas antes de finalizar la sesión.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Then save any pending changes
+    if (hasChanges) {
+      await handleManualSave();
+      // Wait a bit for save to complete
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
     setIsFinishing(true);
     try {
-      // First, save any pending changes using auto-save
-      if (hasChanges) {
-        await autoSave();
-      }
-
-      // Then finish the session (this will NOT trigger additional saves)
+      // Then finish the session
       await onFinishSession();
       console.log("✅ Session finished successfully");
     } catch (error) {
@@ -350,19 +479,35 @@ export default function QuestionnaireForm({
     console.log("🔄 Rendering question in QuestionnaireForm:", {
       questionId: question.id,
       questionName: question.name,
-      questionType: question.question_type
+      questionType: question.question_type,
     });
-    
+
+    const hasError = validationErrors[question.id];
+    const isRequired =
+      !isSessionFinished &&
+      !["timer", "counter", "string"].includes(question.question_type);
+
     try {
       return (
-        <div key={question.id}>
+        <div key={question.id} className={hasError ? "space-y-1" : ""}>
           <QuestionRenderer
             question={question}
             value={responses[question.id]}
-            onChange={(value) => handleResponseChange(question.id, value)}
-            required={!isSessionFinished}
+            onChange={(value) => {
+              handleResponseChange(question.id, value);
+              // Clear validation error when user starts typing
+              if (hasError) {
+                setValidationErrors((prev) => {
+                  const newErrors = { ...prev };
+                  delete newErrors[question.id];
+                  return newErrors;
+                });
+              }
+            }}
+            required={isRequired}
             disabled={isSessionFinished}
           />
+          {hasError && <p className="text-sm text-red-600 mt-1">{hasError}</p>}
         </div>
       );
     } catch (error) {
@@ -370,12 +515,17 @@ export default function QuestionnaireForm({
         questionId: question.id,
         questionName: question.name,
         questionType: question.question_type,
-        error: error
+        error: error,
       });
-      
+
       return (
-        <div key={question.id} className="p-4 border border-red-200 bg-red-50 rounded">
-          <p className="text-red-600">Error rendering question: {question.name}</p>
+        <div
+          key={question.id}
+          className="p-4 border border-red-200 bg-red-50 rounded"
+        >
+          <p className="text-red-600">
+            Error rendering question: {question.name}
+          </p>
         </div>
       );
     }
@@ -402,9 +552,25 @@ export default function QuestionnaireForm({
                 💾 Guardando automáticamente...
               </span>
             )}
-            {!hasChanges && !isAutoSaving && !isSessionFinished && (
-              <span className="text-green-600">✓ Guardado</span>
+            {isManualSaving && (
+              <span className="text-blue-600">💾 Guardando manualmente...</span>
             )}
+            {!hasChanges &&
+              !isAutoSaving &&
+              !isManualSaving &&
+              !isSessionFinished &&
+              areAllQuestionsAnswered() && (
+                <span className="text-green-600">✓ Completado y guardado</span>
+              )}
+            {!hasChanges &&
+              !isAutoSaving &&
+              !isManualSaving &&
+              !isSessionFinished &&
+              !areAllQuestionsAnswered() && (
+                <span className="text-orange-600">
+                  ⚠️ Preguntas requeridas pendientes
+                </span>
+              )}
           </div>
         </CardTitle>
       </CardHeader>
@@ -443,22 +609,63 @@ export default function QuestionnaireForm({
             {(() => {
               console.log("🔄 About to render questions:", {
                 displayQuestionsCount: displayQuestions.length,
-                questionIds: displayQuestions.map(q => q.id)
+                questionIds: displayQuestions.map((q) => q.id),
               });
               return displayQuestions.map(renderQuestion);
             })()}
 
-            {!isSessionFinished && onFinishSession && (
-              <div className="flex justify-center">
-                <Button
-                  type="button"
-                  onClick={handleFinishSession}
-                  disabled={isLoading || isFinishing}
-                  variant="destructive"
-                  className="px-8"
-                >
-                  {isFinishing ? "Finalizando..." : "Finalizar Sesión"}
-                </Button>
+            {!isSessionFinished && (
+              <div className="flex flex-col items-center gap-4">
+                {/* Manual Save Button */}
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    onClick={handleManualSave}
+                    disabled={isManualSaving || isLoading || !hasChanges}
+                    variant="outline"
+                    className="px-6"
+                  >
+                    {isManualSaving ? "Guardando..." : "Guardar Cambios"}
+                  </Button>
+
+                  {/* Finish Session Button */}
+                  {onFinishSession && (
+                    <Button
+                      type="button"
+                      onClick={handleFinishSession}
+                      disabled={
+                        isLoading ||
+                        isFinishing ||
+                        !areAllQuestionsAnswered() ||
+                        hasChanges
+                      }
+                      variant="destructive"
+                      className="px-6"
+                    >
+                      {isFinishing ? "Finalizando..." : "Finalizar Sesión"}
+                    </Button>
+                  )}
+                </div>
+
+                {/* Status Messages */}
+                <div className="text-center text-sm text-gray-600">
+                  {!areAllQuestionsAnswered() && (
+                    <p className="text-orange-600">
+                      ⚠️ Completa las preguntas requeridas (boolean, radio,
+                      checkbox, voice) para poder finalizar la sesión
+                    </p>
+                  )}
+                  {areAllQuestionsAnswered() && hasChanges && (
+                    <p className="text-blue-600">
+                      💾 Guarda los cambios antes de finalizar la sesión
+                    </p>
+                  )}
+                  {areAllQuestionsAnswered() && !hasChanges && (
+                    <p className="text-green-600">
+                      ✅ Todas las preguntas requeridas completadas y guardadas
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 

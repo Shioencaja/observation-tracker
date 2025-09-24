@@ -47,6 +47,7 @@ export default function Navbar() {
             <button
               onClick={handleLogoClick}
               className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
+              title="Ir al inicio"
             >
               <Image
                 src="/lg_container_light.svg"

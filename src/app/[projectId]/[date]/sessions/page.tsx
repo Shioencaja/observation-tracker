@@ -196,12 +196,20 @@ function DateSessionsPageContent() {
   // Load sessions data
   const loadAllSessions = useCallback(async () => {
     if (!user || !project || !selectedDate) {
-      console.log("🚫 Skipping loadAllSessions:", { user: !!user, project: !!project, selectedDate });
+      console.log("🚫 Skipping loadAllSessions:", {
+        user: !!user,
+        project: !!project,
+        selectedDate,
+      });
       return;
     }
 
     try {
-      console.log("🔄 Loading sessions for:", { projectId: project.id, selectedDate, selectedAgency });
+      console.log("🔄 Loading sessions for:", {
+        projectId: project.id,
+        selectedDate,
+        selectedAgency,
+      });
       setIsLoading(true);
 
       // Get sessions for the selected date (using local timezone)
@@ -263,7 +271,11 @@ function DateSessionsPageContent() {
         }
       } else {
         setSessions([]);
-        handleSessionSelect(null);
+        // Don't reset selectedSessionId if it was already set - preserve user's selection
+        // Only reset if there was no session selected before
+        if (!selectedSessionId) {
+          handleSessionSelect(null);
+        }
       }
     } catch (error) {
       console.error("Error loading sessions:", error);
@@ -355,13 +367,13 @@ function DateSessionsPageContent() {
   }, [project, loadObservationOptions]);
 
   useEffect(() => {
-    console.log("🔄 Sessions useEffect triggered:", { 
-      project: !!project, 
-      selectedDate, 
+    console.log("🔄 Sessions useEffect triggered:", {
+      project: !!project,
+      selectedDate,
       skipNextLoad,
-      selectedAgency 
+      selectedAgency,
     });
-    
+
     // Load sessions when project and date are available
     if (project && selectedDate && !skipNextLoad) {
       console.log("✅ Calling loadAllSessions");

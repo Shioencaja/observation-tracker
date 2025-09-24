@@ -147,7 +147,9 @@ export const validateProjectAccess = async (projectId: string) => {
     // Check if user has access to the project
     const { data: project, error } = await supabase
       .from("projects")
-      .select("id, name, description, created_by, agencies, created_at, updated_at")
+      .select(
+        "id, name, description, created_by, agencies, created_at, updated_at"
+      )
       .eq("id", projectId)
       .single();
 

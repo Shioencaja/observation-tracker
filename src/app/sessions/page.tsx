@@ -191,7 +191,11 @@ function SessionsPageContent() {
         }
       } else {
         setSessions([]);
-        setSelectedSessionId(null);
+        // Don't reset selectedSessionId if it was already set - preserve user's selection
+        // Only reset if there was no session selected before
+        if (!selectedSessionId) {
+          setSelectedSessionId(null);
+        }
       }
     } catch (error) {
       console.error("Error loading sessions:", error);

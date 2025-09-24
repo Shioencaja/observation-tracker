@@ -60,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session?.user?.email || "No user"
       );
       clearTimeout(timeout);
-      
+
       // Handle specific auth events
       if (event === "SIGNED_OUT") {
         setSession(null);
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
       }
-      
+
       setLoading(false);
     });
 

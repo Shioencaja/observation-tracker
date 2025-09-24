@@ -100,6 +100,7 @@ export default function SessionDetailsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [sessionCreator, setSessionCreator] = useState<any>(null);
   const [toasts, setToasts] = useState<
     Array<{
       id: string;
@@ -125,13 +126,67 @@ export default function SessionDetailsPage() {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
   };
 
+  // Get session creator information using RPC function
+  const getSessionCreator = async (session: any) => {
+    console.log("🔍 Getting session creator for session:", session);
+
+    // Note: user_email field doesn't exist in database schema
+
+    // Check if it's the current user
+    if (currentUser && currentUser.id === session?.user_id) {
+      console.log("✅ Using current user as creator:", currentUser.email);
+      return {
+        email:
+          currentUser.email || `Usuario ${session.user_id.substring(0, 8)}`,
+        full_name: null,
+      };
+    }
+
+    // Try to get user email using RPC function (same as project settings)
+    try {
+      console.log(
+        "🔍 Fetching user email via RPC for user_id:",
+        session?.user_id
+      );
+      const { data: userEmails, error: emailError } = await supabase.rpc(
+        "get_user_emails",
+        { user_ids: [session?.user_id] }
+      );
+
+      if (emailError) {
+        console.error("❌ Error fetching user email via RPC:", emailError);
+      } else if (userEmails && userEmails.length > 0) {
+        const userEmail = userEmails[0];
+        console.log("✅ Found user email via RPC:", userEmail);
+        return {
+          email: userEmail.email,
+          full_name: null,
+        };
+      }
+    } catch (error) {
+      console.error("❌ Error in RPC call:", error);
+    }
+
+    // Fallback to user ID if nothing found
+    console.warn("❌ Could not get session creator info, using fallback");
+    return {
+      email: `Usuario ${session?.user_id?.substring(0, 8) || "Unknown"}`,
+      full_name: null,
+    };
+  };
+
   // Finish session function
   const handleFinishSession = async () => {
     if (!currentSession || !currentUser) return;
 
-    // Check if user is the project creator
+    console.log("⏹️ Starting session finish process:", currentSession.id);
+
+    // Check if user is the project creator (can finish any session in the project)
     if (currentUser.id !== project?.created_by) {
-      showToast("No tienes permisos para finalizar sesiones", "error");
+      showToast(
+        "Solo el creador del proyecto puede finalizar sesiones",
+        "error"
+      );
       return;
     }
 
@@ -143,17 +198,63 @@ export default function SessionDetailsPage() {
 
     setIsFinishing(true);
     try {
+      // First, verify the session exists and belongs to the project
+      const { data: sessionData, error: sessionCheckError } = await supabase
+        .from("sessions")
+        .select("id, user_id, project_id, end_time")
+        .eq("id", currentSession.id)
+        .eq("project_id", project.id) // Ensure session belongs to this project
+        .single();
+
+      if (sessionCheckError) {
+        console.error("Error checking session:", sessionCheckError);
+        if (sessionCheckError.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(
+            `Error al verificar la sesión: ${sessionCheckError.message}`,
+            "error"
+          );
+        }
+        return;
+      }
+
+      // Project creator can finish any session in their project
+      // No need to check if sessionData.user_id === currentUser.id
+
+      if (sessionData.end_time) {
+        showToast("Esta sesión ya está finalizada", "info");
+        return;
+      }
+
+      // Update the session with end_time (project creator can finish any session in their project)
       const { error } = await supabase
         .from("sessions")
         .update({ end_time: new Date().toISOString() })
         .eq("id", currentSession.id)
-        .eq("user_id", currentUser.id);
+        .eq("project_id", project.id); // Ensure session belongs to this project
 
       if (error) {
         console.error("Error finishing session:", error);
-        showToast("Error al finalizar la sesión", "error");
+        if (error.code === "23503") {
+          showToast(
+            "No se puede finalizar la sesión debido a restricciones de integridad de datos",
+            "error"
+          );
+        } else if (error.code === "42501") {
+          showToast(
+            "No tienes permisos para finalizar sesiones en este proyecto",
+            "error"
+          );
+        } else if (error.code === "PGRST116") {
+          showToast("La sesión no existe o ya fue eliminada", "error");
+        } else {
+          showToast(`Error al finalizar la sesión: ${error.message}`, "error");
+        }
         return;
       }
+
+      console.log("✅ Session finished successfully");
 
       // Update local session state
       setSession({
@@ -164,7 +265,17 @@ export default function SessionDetailsPage() {
       showToast("Sesión finalizada exitosamente", "success");
     } catch (error) {
       console.error("Unexpected error finishing session:", error);
-      showToast("Error inesperado al finalizar la sesión", "error");
+      if (error instanceof Error) {
+        showToast(
+          `Error inesperado al finalizar la sesión: ${error.message}`,
+          "error"
+        );
+      } else {
+        showToast(
+          "Error inesperado al finalizar la sesión. Intenta nuevamente.",
+          "error"
+        );
+      }
     } finally {
       setIsFinishing(false);
     }
@@ -333,6 +444,11 @@ export default function SessionDetailsPage() {
       }));
 
       setObservations(formattedObservations);
+
+      // Get session creator information using RPC function
+      const creatorInfo = await getSessionCreator(currentSession);
+      setSessionCreator(creatorInfo);
+
       setIsLoading(false);
     } catch (error) {
       console.error("Error loading session data:", error);
@@ -383,7 +499,27 @@ export default function SessionDetailsPage() {
 
     setIsDeleting(true);
     try {
-      // First, get all observations to extract voice recording URLs
+      // First, check if session is ended and end it if not
+      if (currentSession && !currentSession.end_time) {
+        console.log(
+          "⏹️ Session is not ended, ending it first before deletion:",
+          sessionId
+        );
+        const { error: endSessionError } = await supabase
+          .from("sessions")
+          .update({ end_time: new Date().toISOString() })
+          .eq("id", sessionId)
+          .eq("user_id", currentUser.id);
+
+        if (endSessionError) {
+          console.error("Error ending session:", endSessionError);
+          showToast("Error al finalizar la sesión antes de eliminar", "error");
+          return;
+        }
+        console.log("✅ Session ended successfully before deletion");
+      }
+
+      // Get all observations to extract voice recording URLs
       const { data: observations, error: fetchError } = await supabase
         .from("observations")
         .select("response")
@@ -462,7 +598,7 @@ export default function SessionDetailsPage() {
 
       // Redirect to sessions list
       showToast(
-        "Sesión y todas sus observaciones eliminadas exitosamente",
+        "Sesión finalizada y eliminada exitosamente junto con todas sus observaciones",
         "success"
       );
       setTimeout(() => {
@@ -670,10 +806,10 @@ export default function SessionDetailsPage() {
     }
 
     try {
-      // Use the current authenticated user's email if this is their session
-      // Otherwise, show a truncated user ID
-      let userEmail =
-        user?.email || `Usuario ${currentSession.user_id.substring(0, 8)}`;
+      // Use the session creator's email (username only)
+      let userEmail = sessionCreator?.email
+        ? sessionCreator.email.split("@")[0]
+        : `Usuario ${currentSession.user_id.substring(0, 8)}`;
 
       // Create headers with each question as a column
       const headers = [
@@ -873,20 +1009,22 @@ export default function SessionDetailsPage() {
                   Información
                 </DropdownMenuItem>
                 {/* Finish session button - Only for project creators and if session is not finished */}
-                {currentUser?.id === project?.created_by && !currentSession?.end_time && (
-                  <DropdownMenuItem 
-                    onClick={handleFinishSession}
-                    disabled={isFinishing}
-                    className="text-green-600 focus:text-green-600"
-                  >
-                    {isFinishing ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Clock className="mr-2 h-4 w-4" />
-                    )}
-                    {isFinishing ? "Finalizando..." : "Finalizar sesión"}
-                  </DropdownMenuItem>
-                )}
+                {currentUser?.id === project?.created_by &&
+                  !currentSession?.end_time && (
+                    <DropdownMenuItem
+                      onClick={handleFinishSession}
+                      disabled={isFinishing}
+                      className="text-green-600 focus:text-green-600"
+                      title="El creador del proyecto puede finalizar cualquier sesión"
+                    >
+                      {isFinishing ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Clock className="mr-2 h-4 w-4" />
+                      )}
+                      {isFinishing ? "Finalizando..." : "Finalizar sesión"}
+                    </DropdownMenuItem>
+                  )}
                 {/* Export button - Only for project creators */}
                 {currentUser?.id === project?.created_by && (
                   <DropdownMenuItem onClick={exportSessionAnswers}>
@@ -942,7 +1080,9 @@ export default function SessionDetailsPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-muted-foreground">Usuario</p>
                       <p className="font-medium text-xs sm:text-sm truncate">
-                        {user?.email || currentSession.user_id.substring(0, 8)}
+                        {sessionCreator?.email
+                          ? sessionCreator.email.split("@")[0]
+                          : currentSession.user_id.substring(0, 8)}
                       </p>
                     </div>
                   </div>
@@ -952,8 +1092,10 @@ export default function SessionDetailsPage() {
                     <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-muted-foreground">Estado</p>
-                      <Badge 
-                        variant={currentSession?.end_time ? "secondary" : "default"}
+                      <Badge
+                        variant={
+                          currentSession?.end_time ? "secondary" : "default"
+                        }
                         className="text-xs"
                       >
                         {currentSession?.end_time ? "Finalizada" : "Activa"}
@@ -1089,7 +1231,9 @@ export default function SessionDetailsPage() {
                       Usuario
                     </p>
                     <p className="font-medium text-sm truncate">
-                      {user?.email || currentSession?.user_id?.substring(0, 8)}
+                      {sessionCreator?.email
+                        ? sessionCreator.email.split("@")[0]
+                        : currentSession?.user_id?.substring(0, 8)}
                     </p>
                   </div>
                 </div>

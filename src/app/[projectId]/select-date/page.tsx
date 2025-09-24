@@ -219,7 +219,12 @@ function DateSelectorPageContent() {
         <div className="space-y-6">
           {/* Date Selector */}
           <div>
-            <label htmlFor="date-input" className="text-sm font-medium text-gray-700">Fecha *</label>
+            <label
+              htmlFor="date-input"
+              className="text-sm font-medium text-gray-700"
+            >
+              Fecha *
+            </label>
             <input
               id="date-input"
               type="date"
