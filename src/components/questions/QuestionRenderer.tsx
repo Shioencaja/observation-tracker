@@ -46,16 +46,22 @@ export default function QuestionRenderer({
     disabled,
   };
 
+  // Normalize question type to handle any whitespace or encoding issues
+  const normalizedQuestionType = question.question_type?.trim().toLowerCase();
+  
   // Debug logging for question types
   console.log('🔍 QuestionRenderer Debug:', {
     questionId: question.id,
     questionName: question.name,
-    questionType: question.question_type,
+    originalQuestionType: question.question_type,
+    normalizedQuestionType: normalizedQuestionType,
+    questionTypeLength: question.question_type?.length,
+    questionTypeCharCodes: question.question_type?.split('').map(c => c.charCodeAt(0)),
     options: question.options,
     value: value
   });
 
-  switch (question.question_type) {
+  switch (normalizedQuestionType) {
     case "text":
     case "string": // Handle both 'text' and 'string' question types
       return (
@@ -86,6 +92,8 @@ export default function QuestionRenderer({
 
     case "multiple_choice":
     case "radio": // Handle both 'multiple_choice' and 'radio' question types
+    case "opcion_unica": // Handle Spanish version
+    case "opción única": // Handle Spanish version with accent
       // Set first option as default if no value is selected
       const defaultValue =
         value ||
@@ -199,7 +207,7 @@ export default function QuestionRenderer({
     default:
       // Fallback to text input for unknown question types
       console.warn(
-        `Unknown question type: ${question.question_type}, falling back to text input`
+        `Unknown question type: "${question.question_type}" (normalized: "${normalizedQuestionType}"), falling back to text input`
       );
       return (
         <TextQuestion

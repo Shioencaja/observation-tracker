@@ -62,10 +62,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timeout);
       
       // Handle specific auth events
-      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+      if (event === "SIGNED_OUT") {
+        setSession(null);
+        setUser(null);
+      } else if (event === "TOKEN_REFRESHED") {
         setSession(session);
         setUser(session?.user ?? null);
-      } else if (event === 'SIGNED_IN') {
+      } else if (event === "SIGNED_IN") {
+        setSession(session);
+        setUser(session?.user ?? null);
+      } else if (event === "PASSWORD_RECOVERY") {
+        // Handle password recovery
         setSession(session);
         setUser(session?.user ?? null);
       } else {
@@ -100,12 +107,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Check if we have a valid session before trying to sign out
       const sessionValid = await isSessionValid();
-      
+
       if (sessionValid) {
         try {
           // Only try to sign out if we have a valid session
           const { error } = await supabase.auth.signOut();
-          
+
           if (error) {
             console.warn("⚠️ Sign out failed:", error);
             // Use force logout as fallback
