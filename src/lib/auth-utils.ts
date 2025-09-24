@@ -1,5 +1,4 @@
 import { supabase } from "./supabase";
-import { redirect } from "next/navigation";
 
 /**
  * Force logout by clearing all auth data without calling Supabase signOut
@@ -59,7 +58,23 @@ export const isSessionValid = async (): Promise<boolean> => {
       data: { session },
       error,
     } = await supabase.auth.getSession();
-    return !error && !!session;
+    
+    if (error) {
+      console.warn("⚠️ Session validation error:", error);
+      return false;
+    }
+    
+    if (!session) {
+      return false;
+    }
+    
+    // Check if session is expired
+    if (session.expires_at && new Date(session.expires_at * 1000) < new Date()) {
+      console.warn("⚠️ Session expired");
+      return false;
+    }
+    
+    return true;
   } catch (error) {
     console.error("❌ Error checking session validity:", error);
     return false;
@@ -71,14 +86,22 @@ export const isSessionValid = async (): Promise<boolean> => {
  */
 export const getCurrentUser = async () => {
   try {
+    // First check if session is valid
+    const sessionValid = await isSessionValid();
+    if (!sessionValid) {
+      return null;
+    }
+
     const {
       data: { user },
       error,
     } = await supabase.auth.getUser();
+    
     if (error) {
-      console.error("❌ Error getting current user:", error);
+      console.warn("⚠️ Error getting current user:", error);
       return null;
     }
+    
     return user;
   } catch (error) {
     console.error("❌ Error getting current user:", error);
@@ -87,17 +110,21 @@ export const getCurrentUser = async () => {
 };
 
 /**
- * Redirect to login page
+ * Redirect to login page (client-side)
  */
 export const redirectToLogin = () => {
-  redirect("/login");
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
 };
 
 /**
- * Redirect to projects page
+ * Redirect to projects page (client-side)
  */
 export const redirectToProjects = () => {
-  redirect("/projects");
+  if (typeof window !== "undefined") {
+    window.location.href = "/projects";
+  }
 };
 
 /**
@@ -106,11 +133,11 @@ export const redirectToProjects = () => {
 export const validateProjectAccess = async (projectId: string) => {
   try {
     const user = await getCurrentUser();
-    
+
     if (!user) {
       return {
         hasAccess: false,
-        error: "Usuario no autenticado"
+        error: "Usuario no autenticado",
       };
     }
 
@@ -124,7 +151,7 @@ export const validateProjectAccess = async (projectId: string) => {
     if (error || !project) {
       return {
         hasAccess: false,
-        error: "Proyecto no encontrado"
+        error: "Proyecto no encontrado",
       };
     }
 
@@ -133,46 +160,35 @@ export const validateProjectAccess = async (projectId: string) => {
       return { hasAccess: true };
     }
 
-    // Check organization access
+    // Check organization access (optional - user might not be in an organization)
     const { data: orgAccess, error: orgError } = await supabase
       .from("user_organizations")
       .select("organization_id")
       .eq("user_id", user.id)
       .single();
 
-    if (orgError || !orgAccess) {
-      return {
-        hasAccess: false,
-        error: "Sin acceso al proyecto"
-      };
-    }
+    // If user has organization access, check if project belongs to same organization
+    if (!orgError && orgAccess) {
+      const { data: projectOrg, error: projectOrgError } = await supabase
+        .from("projects")
+        .select("organization_id")
+        .eq("id", projectId)
+        .single();
 
-    const { data: projectOrg, error: projectOrgError } = await supabase
-      .from("projects")
-      .select("organization_id")
-      .eq("id", projectId)
-      .single();
-
-    if (projectOrgError || !projectOrg) {
-      return {
-        hasAccess: false,
-        error: "Error verificando acceso organizacional"
-      };
-    }
-
-    if (orgAccess.organization_id === projectOrg.organization_id) {
-      return { hasAccess: true };
+      if (!projectOrgError && projectOrg && orgAccess.organization_id === projectOrg.organization_id) {
+        return { hasAccess: true };
+      }
     }
 
     return {
       hasAccess: false,
-      error: "Sin acceso al proyecto"
+      error: "Sin acceso al proyecto",
     };
   } catch (error) {
     console.error("❌ Error validating project access:", error);
     return {
       hasAccess: false,
-      error: "Error interno del servidor"
+      error: "Error interno del servidor",
     };
   }
 };
@@ -180,14 +196,17 @@ export const validateProjectAccess = async (projectId: string) => {
 /**
  * Validate session access for the current user
  */
-export const validateSessionAccess = async (projectId: string, sessionId: string) => {
+export const validateSessionAccess = async (
+  projectId: string,
+  sessionId: string
+) => {
   try {
     const user = await getCurrentUser();
-    
+
     if (!user) {
       return {
         hasAccess: false,
-        error: "Usuario no autenticado"
+        error: "Usuario no autenticado",
       };
     }
 
@@ -208,7 +227,7 @@ export const validateSessionAccess = async (projectId: string, sessionId: string
     if (error || !session) {
       return {
         hasAccess: false,
-        error: "Sesión no encontrada"
+        error: "Sesión no encontrada",
       };
     }
 
@@ -223,7 +242,7 @@ export const validateSessionAccess = async (projectId: string, sessionId: string
     console.error("❌ Error validating session access:", error);
     return {
       hasAccess: false,
-      error: "Error interno del servidor"
+      error: "Error interno del servidor",
     };
   }
 };
