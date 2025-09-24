@@ -1,156 +1,68 @@
 import { supabase } from "./supabase";
 
-export interface AuthError {
-  message: string;
-  code?: string;
-}
-
-export async function validateProjectAccess(
-  projectId: string
-): Promise<{ hasAccess: boolean; project?: any; error?: string }> {
+/**
+ * Force logout by clearing all auth data without calling Supabase signOut
+ * This is useful when the standard signOut fails due to session issues
+ */
+export const forceLogout = () => {
+  console.log("🔄 Force logout: Clearing all auth data...");
+  
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return { hasAccess: false, error: "Usuario no autenticado" };
-    }
-
-    // Check if user has access to the project
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("id", projectId)
-      .single();
-
-    if (projectError || !project) {
-      return { hasAccess: false, error: "Proyecto no encontrado" };
-    }
-
-    // Check if user is the creator or has been added to the project
-    const { data: projectUser, error: projectUserError } = await supabase
-      .from("project_users")
-      .select("id")
-      .eq("project_id", projectId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (project.created_by === user.id || projectUser) {
-      return { hasAccess: true, project };
-    }
-
-    return { hasAccess: false, error: "No tienes acceso a este proyecto" };
+    // Clear localStorage
+    Object.keys(localStorage).forEach((key) => {
+      if (key.includes("supabase") || key.includes("auth") || key.includes("sb-")) {
+        localStorage.removeItem(key);
+      }
+    });
+    
+    // Clear sessionStorage
+    Object.keys(sessionStorage).forEach((key) => {
+      if (key.includes("supabase") || key.includes("auth") || key.includes("sb-")) {
+        sessionStorage.removeItem(key);
+      }
+    });
+    
+    // Clear any cookies that might contain auth data
+    document.cookie.split(";").forEach((cookie) => {
+      const eqPos = cookie.indexOf("=");
+      const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+      if (name.includes("supabase") || name.includes("auth") || name.includes("sb-")) {
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      }
+    });
+    
+    console.log("✅ Force logout completed");
   } catch (error) {
-    return { hasAccess: false, error: "Error de validación" };
+    console.error("❌ Error during force logout:", error);
   }
-}
+};
 
-export async function validateSessionAccess(
-  projectId: string,
-  sessionId: string
-): Promise<{
-  hasAccess: boolean;
-  project?: any;
-  session?: any;
-  error?: string;
-}> {
+/**
+ * Check if the current session is valid
+ */
+export const isSessionValid = async (): Promise<boolean> => {
   try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return { hasAccess: false, error: "Usuario no autenticado" };
-    }
-
-    // First validate project access
-    const projectAccess = await validateProjectAccess(projectId);
-    if (!projectAccess.hasAccess) {
-      return projectAccess;
-    }
-
-    // Check if session exists and belongs to the project
-    const { data: session, error: sessionError } = await supabase
-      .from("sessions")
-      .select("*")
-      .eq("id", sessionId)
-      .eq("project_id", projectId)
-      .single();
-
-    if (sessionError || !session) {
-      return { hasAccess: false, error: "Sesión no encontrada" };
-    }
-
-    return { hasAccess: true, project: projectAccess.project, session };
+    const { data: { session }, error } = await supabase.auth.getSession();
+    return !error && !!session;
   } catch (error) {
-    return { hasAccess: false, error: "Error de validación" };
-  }
-}
-
-export async function validateDateSessionsAccess(
-  projectId: string,
-  selectedDate: string
-): Promise<{ hasAccess: boolean; project?: any; error?: string }> {
-  try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return { hasAccess: false, error: "Usuario no autenticado" };
-    }
-
-    // Validate project access
-    const projectAccess = await validateProjectAccess(projectId);
-    if (!projectAccess.hasAccess) {
-      return projectAccess;
-    }
-
-    return { hasAccess: true, project: projectAccess.project };
-  } catch (error) {
-    return { hasAccess: false, error: "Error de validación" };
-  }
-}
-
-export async function isProjectCreator(projectId: string): Promise<boolean> {
-  try {
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return false;
-    }
-
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("created_by")
-      .eq("id", projectId)
-      .single();
-
-    if (projectError || !project) {
-      return false;
-    }
-
-    return project.created_by === user.id;
-  } catch (error) {
+    console.error("❌ Error checking session validity:", error);
     return false;
   }
-}
+};
 
-export function redirectToLogin() {
-  if (typeof window !== "undefined") {
-    window.location.href = "/login";
+/**
+ * Get the current user safely
+ */
+export const getCurrentUser = async () => {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) {
+      console.error("❌ Error getting current user:", error);
+      return null;
+    }
+    return user;
+  } catch (error) {
+    console.error("❌ Error getting current user:", error);
+    return null;
   }
-}
-
-export function redirectToProjects() {
-  if (typeof window !== "undefined") {
-    window.location.href = "/projects";
-  }
-}
+};

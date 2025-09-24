@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { forceLogout, isSessionValid } from "@/lib/auth-utils";
 
 interface AuthContextType {
   user: User | null;
@@ -30,13 +31,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .getSession()
       .then(({ data: { session }, error }) => {
         clearTimeout(timeout);
-        setSession(session);
-        setUser(session?.user ?? null);
+        if (error) {
+          console.error("❌ AuthProvider: Error getting session", error);
+          // Clear any invalid session data
+          setSession(null);
+          setUser(null);
+        } else {
+          setSession(session);
+          setUser(session?.user ?? null);
+        }
         setLoading(false);
       })
       .catch((err) => {
         console.error("❌ AuthProvider: Error getting session", err);
         clearTimeout(timeout);
+        setSession(null);
+        setUser(null);
         setLoading(false);
       });
 
@@ -44,9 +54,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(
+        "🔄 Auth state change:",
+        event,
+        session?.user?.email || "No user"
+      );
       clearTimeout(timeout);
-      setSession(session);
-      setUser(session?.user ?? null);
+      
+      // Handle specific auth events
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        setSession(session);
+        setUser(session?.user ?? null);
+      } else if (event === 'SIGNED_IN') {
+        setSession(session);
+        setUser(session?.user ?? null);
+      } else {
+        setSession(session);
+        setUser(session?.user ?? null);
+      }
+      
       setLoading(false);
     });
 
@@ -65,8 +91,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    try {
+      console.log("🚪 Starting sign out process...");
+
+      // Clear local state immediately to provide instant feedback
+      setUser(null);
+      setSession(null);
+
+      // Check if we have a valid session before trying to sign out
+      const sessionValid = await isSessionValid();
+      
+      if (sessionValid) {
+        try {
+          // Only try to sign out if we have a valid session
+          const { error } = await supabase.auth.signOut();
+          
+          if (error) {
+            console.warn("⚠️ Sign out failed:", error);
+            // Use force logout as fallback
+            forceLogout();
+          } else {
+            console.log("✅ Successfully signed out from Supabase");
+          }
+        } catch (signOutError) {
+          console.warn("⚠️ Sign out threw error:", signOutError);
+          // Use force logout as fallback
+          forceLogout();
+        }
+      } else {
+        console.log("ℹ️ No active session found, using force logout");
+        forceLogout();
+      }
+
+      console.log("✅ Sign out process completed");
+    } catch (error) {
+      console.error("❌ Unexpected sign out error:", error);
+      // Use force logout as final fallback
+      forceLogout();
+    }
   };
 
   const value = {
