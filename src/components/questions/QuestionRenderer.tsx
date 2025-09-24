@@ -49,7 +49,16 @@ export default function QuestionRenderer({
   // Normalize question type to handle any whitespace or encoding issues
   const normalizedQuestionType = question.question_type?.trim().toLowerCase();
 
-  switch (normalizedQuestionType) {
+  console.log("🔍 Rendering question:", {
+    questionId: question.id,
+    questionName: question.name,
+    questionType: question.question_type,
+    normalizedQuestionType,
+    value: value
+  });
+
+  try {
+    switch (normalizedQuestionType) {
     case "text":
     case "string": // Handle both 'text' and 'string' question types
       return (
@@ -204,5 +213,22 @@ export default function QuestionRenderer({
           onChange={onChange}
         />
       );
+    }
+  } catch (error) {
+    console.error("❌ Error rendering question:", {
+      questionId: question.id,
+      questionName: question.name,
+      questionType: question.question_type,
+      error: error
+    });
+    
+    // Fallback to text input on error
+    return (
+      <TextQuestion
+        {...commonProps}
+        value={value || ""}
+        onChange={onChange}
+      />
+    );
   }
 }
