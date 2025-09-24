@@ -424,9 +424,9 @@ function SessionsContent() {
     showToast("Función de exportación en desarrollo", "info");
   };
 
-  // Format response for CSV export (plain text only)
+  // Format response for CSV export (show actual values, empty if no response)
   const formatResponseForCSV = (response: unknown, questionType: string) => {
-    if (response === null || response === undefined) return "Sin respuesta";
+    if (response === null || response === undefined) return "";
 
     // Helper function to safely parse JSON
     const parseJsonSafely = (str: string) => {
@@ -443,8 +443,15 @@ function SessionsContent() {
         return response;
 
       case "boolean":
+        // For true boolean questions, convert to Sí/No
+        if (response === true || response === "true") return "Sí";
+        if (response === false || response === "false") return "No";
+        // If it's a string that's not "true"/"false", return as is
+        return typeof response === "string" ? response : "";
+
       case "radio":
-        return response ? "Sí" : "No";
+        // For radio questions, return the selected option text directly
+        return typeof response === "string" ? response : "";
 
       case "checkbox":
         // Try to parse as JSON if it's a string
@@ -454,11 +461,9 @@ function SessionsContent() {
         }
 
         if (Array.isArray(checkboxData)) {
-          return checkboxData.length > 0
-            ? checkboxData.join(", ")
-            : "Sin Respuesta";
+          return checkboxData.length > 0 ? checkboxData.join(", ") : "";
         }
-        return "Sin Respuesta";
+        return "";
 
       case "number":
       case "counter":
@@ -469,7 +474,7 @@ function SessionsContent() {
         if (typeof response === "string" && !isNaN(Number(response))) {
           return response;
         }
-        return "Sin valor";
+        return "";
 
       case "timer":
         // Try to parse as JSON if it's a string
@@ -490,7 +495,7 @@ function SessionsContent() {
             )
             .join(" | ");
         }
-        return "Sin ciclos";
+        return "";
 
       case "voice":
         // Handle voice responses with audio URL
@@ -500,7 +505,7 @@ function SessionsContent() {
             return "Audio grabado";
           }
         }
-        return "Sin audio grabado";
+        return "";
 
       default:
         return typeof response === "string"
@@ -535,6 +540,10 @@ function SessionsContent() {
 
       // First, get all observations for all filtered sessions
       const sessionIds = filteredSessions.map((session) => session.id);
+      console.log("🔍 CSV Export - Loading observations for sessions:", {
+        sessionCount: sessionIds.length,
+      });
+
       const { data: allObservations, error: obsError } = await supabase
         .from("observations")
         .select(
@@ -551,6 +560,10 @@ function SessionsContent() {
         )
         .in("session_id", sessionIds)
         .order("created_at", { ascending: true });
+
+      console.log("🔍 CSV Export - Raw observations from database:", {
+        totalObservations: allObservations?.length || 0,
+      });
 
       // Get user emails for all session creators using the same approach as create project
       const uniqueUserIds = Array.from(
@@ -612,100 +625,58 @@ function SessionsContent() {
         });
       });
 
-      // Get all unique question names for headers
-      const allQuestionNames = new Set<string>();
-      Object.values(observationsBySession).forEach((observations) => {
-        observations.forEach((obs) => {
-          allQuestionNames.add(obs.question_name);
-        });
+      console.log("🔍 CSV Export - Observations grouped by session:", {
+        sessionsWithObservations: Object.keys(observationsBySession).length,
+        totalObservations: Object.values(observationsBySession).reduce(
+          (sum, obs) => sum + obs.length,
+          0
+        ),
       });
 
-      const questionNames = Array.from(allQuestionNames);
-
-      // Prepare CSV headers
+      // Prepare CSV headers for questions as rows format
       const csvHeaders = [
         "ID de Sesión",
-        "Alias",
-        "Usuario",
-        "Fecha de Inicio",
-        "Fecha de Fin",
-        "Duración",
-        "Agencia",
-        "Estado",
-        ...questionNames,
+        "Fecha",
+        "Pregunta",
+        "Respuesta",
       ];
 
-      // Create CSV data
-      const csvData = filteredSessions.map((session) => {
-        const status = getSessionStatus(session);
-        const startTime = new Date(session.start_time).toLocaleString("es-ES");
-        const endTime = session.end_time
-          ? new Date(session.end_time).toLocaleString("es-ES")
-          : "Sesión activa";
+      // Create CSV data with questions as rows
+      const csvData: Array<string[]> = [];
 
-        // Calculate duration
-        let duration = "Sesión activa";
-        if (session.end_time) {
-          const start = new Date(session.start_time);
-          const end = new Date(session.end_time);
-          const durationMs = end.getTime() - start.getTime();
-          const hours = Math.floor(durationMs / (1000 * 60 * 60));
-          const minutes = Math.floor(
-            (durationMs % (1000 * 60 * 60)) / (1000 * 60)
-          );
-          const seconds = Math.floor((durationMs % (1000 * 60)) / 1000);
-          duration = `${hours.toString().padStart(2, "0")}:${minutes
-            .toString()
-            .padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-        }
-
-        // Get session creator's email or truncated ID
-        const userEmail =
-          userEmailMap.get(session.user_id) ||
-          `Usuario ${session.user_id.substring(0, 8)}`;
+      filteredSessions.forEach((session) => {
+        // Format date in Peru timezone (UTC-5)
+        const sessionDate = new Date(session.start_time);
+        const peruDate = new Date(sessionDate.getTime() - (5 * 60 * 60 * 1000)); // Convert to Peru time
+        const formattedDate = peruDate.toLocaleDateString("es-PE", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: "America/Lima"
+        });
 
         // Get observations for this session
         const sessionObservations = observationsBySession[session.id] || [];
-        const observationMap = sessionObservations.reduce(
-          (acc, obs) => {
-            acc[obs.question_name] = obs;
-            return acc;
-          },
-          {} as Record<
-            string,
-            {
-              id: string;
-              session_id: string;
-              response: unknown;
-              created_at: string;
-              question_name: string;
-              question_type: string;
-            }
-          >
-        );
 
-        // Create base row
-        const baseRow = [
-          session.id,
-          session.alias || `Sesión ${session.id.substring(0, 8)}`,
-          userEmail,
-          startTime,
-          endTime,
-          duration,
-          session.agency || "Sin agencia",
-          status.label,
-        ];
-
-        // Add observation responses in the same order as headers
-        const observationResponses = questionNames.map((questionName) => {
-          const obs = observationMap[questionName];
-          if (obs) {
-            return formatResponseForCSV(obs.response, obs.question_type);
-          }
-          return "Sin respuesta";
-        });
-
-        return [...baseRow, ...observationResponses];
+        if (sessionObservations.length > 0) {
+          // Add a row for each observation (question-response pair)
+          sessionObservations.forEach((obs) => {
+            csvData.push([
+              session.id,
+              formattedDate,
+              obs.question_name,
+              String(formatResponseForCSV(obs.response, obs.question_type)),
+            ]);
+          });
+        } else {
+          // If no observations, add a row indicating no data
+          csvData.push([
+            session.id,
+            formattedDate,
+            "Sin datos",
+            "No hay observaciones registradas",
+          ]);
+        }
       });
 
       // Create CSV content
@@ -732,7 +703,7 @@ function SessionsContent() {
       URL.revokeObjectURL(url);
 
       showToast(
-        `Exportadas ${filteredSessions.length} sesiones exitosamente`,
+        `Exportadas ${csvData.length} observaciones de ${filteredSessions.length} sesiones exitosamente`,
         "success"
       );
     } catch (error) {
