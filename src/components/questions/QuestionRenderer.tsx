@@ -110,23 +110,11 @@ export default function QuestionRenderer({
       case "radio": // Handle both 'multiple_choice' and 'radio' question types
       case "opcion_unica": // Handle Spanish version
       case "opción única": // Handle Spanish version with accent
-        // Set first option as default if no value is selected
-        const defaultValue =
-          value ||
-          (question.options && question.options.length > 0
-            ? question.options[0]
-            : "");
-
-        // If no value is set and we have options, automatically select the first one
-        if (!value && question.options && question.options.length > 0) {
-          // Use setTimeout to avoid state update during render
-          setTimeout(() => onChange(question.options[0]), 0);
-        }
-
+        // Don't pre-select any option for radio buttons
         return (
           <MultipleChoiceQuestion
             {...commonProps}
-            value={defaultValue}
+            value={value || ""}
             onChange={onChange}
             options={question.options}
           />

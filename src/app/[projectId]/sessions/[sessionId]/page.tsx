@@ -631,8 +631,15 @@ export default function SessionDetailsPage() {
         return response;
 
       case "boolean":
+        // For true boolean questions, convert to Sí/No
+        if (response === true || response === "true") return "Sí";
+        if (response === false || response === "false") return "No";
+        // If it's a string that's not "true"/"false", it might be a radio option
+        return typeof response === "string" ? response : "Sin respuesta";
+        
       case "radio":
-        return response ? "Sí" : "No";
+        // For radio questions, return the selected option text directly
+        return typeof response === "string" ? response : "Sin respuesta";
 
       case "checkbox":
         // Try to parse as JSON if it's a string
@@ -728,8 +735,15 @@ export default function SessionDetailsPage() {
         return response;
 
       case "boolean":
+        // For true boolean questions, convert to Sí/No
+        if (response === true || response === "true") return "Sí";
+        if (response === false || response === "false") return "No";
+        // If it's a string that's not "true"/"false", it might be a radio option
+        return typeof response === "string" ? response : "Sin respuesta";
+        
       case "radio":
-        return response ? "Sí" : "No";
+        // For radio questions, return the selected option text directly
+        return typeof response === "string" ? response : "Sin respuesta";
 
       case "checkbox":
         // Try to parse as JSON if it's a string
