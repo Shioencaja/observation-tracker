@@ -413,6 +413,33 @@ function DateSessionsPageContent() {
         return;
       }
 
+      // Create blank observations for all observation options
+      if (observationOptions.length > 0) {
+        const blankObservations = observationOptions.map((option) => ({
+          session_id: data.id,
+          project_id: project.id,
+          user_id: user.id,
+          project_observation_option_id: option.id,
+          response: null, // Blank response
+          agency: selectedAgency || null,
+          alias: null,
+        }));
+
+        const { error: obsError } = await supabase
+          .from("observations")
+          .insert(blankObservations);
+
+        if (obsError) {
+          console.error("Error creating blank observations:", obsError);
+          // Don't throw error here - session was created successfully
+          // Just log the error and continue
+        } else {
+          console.log(
+            `✅ Created ${blankObservations.length} blank observations for new session`
+          );
+        }
+      }
+
       // Refresh sessions
       await loadAllSessions();
       handleSessionSelect(data.id);
@@ -823,6 +850,7 @@ function DateSessionsPageContent() {
                   selectedSessionId={selectedSessionId}
                   isSessionFinished={isSessionFinished}
                   onFinishSession={handleFinishSession}
+                  projectId={projectId}
                 />
               );
             } else {

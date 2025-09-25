@@ -596,85 +596,57 @@ function SessionsContent() {
         return;
       }
 
-      // Group observations by session
-      const observationsBySession: Record<
-        string,
-        Array<{
-          id: string;
-          session_id: string;
-          response: unknown;
-          created_at: string;
-          question_name: string;
-          question_type: string;
-        }>
-      > = {};
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (allObservations || []).forEach((obs: any) => {
-        if (!observationsBySession[obs.session_id]) {
-          observationsBySession[obs.session_id] = [];
-        }
-        observationsBySession[obs.session_id].push({
-          id: obs.id,
-          session_id: obs.session_id,
-          response: obs.response,
-          created_at: obs.created_at,
-          question_name: obs.project_observation_options?.name || "Unknown",
-          question_type:
-            obs.project_observation_options?.question_type || "unknown",
-        });
-      });
-
-      console.log("🔍 CSV Export - Observations grouped by session:", {
-        sessionsWithObservations: Object.keys(observationsBySession).length,
-        totalObservations: Object.values(observationsBySession).reduce(
-          (sum, obs) => sum + obs.length,
-          0
-        ),
+      console.log("🔍 CSV Export - Processing observations:", {
+        totalObservations: allObservations?.length || 0,
+        filteredSessionsCount: filteredSessions.length,
       });
 
       // Prepare CSV headers for questions as rows format
-      const csvHeaders = [
-        "ID de Sesión",
-        "Fecha",
-        "Pregunta",
-        "Respuesta",
-      ];
+      const csvHeaders = ["ID de Sesión", "Fecha", "Pregunta", "Respuesta"];
 
       // Create CSV data with questions as rows
       const csvData: Array<string[]> = [];
 
-      filteredSessions.forEach((session) => {
-        // Format date in Peru timezone (UTC-5)
-        const sessionDate = new Date(session.start_time);
-        const peruDate = new Date(sessionDate.getTime() - (5 * 60 * 60 * 1000)); // Convert to Peru time
-        const formattedDate = peruDate.toLocaleDateString("es-PE", {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          timeZone: "America/Lima"
-        });
-
-        // Get observations for this session
-        const sessionObservations = observationsBySession[session.id] || [];
-
-        if (sessionObservations.length > 0) {
-          // Add a row for each observation (question-response pair)
-          sessionObservations.forEach((obs) => {
-            csvData.push([
-              session.id,
-              formattedDate,
-              obs.question_name,
-              String(formatResponseForCSV(obs.response, obs.question_type)),
-            ]);
+      // Create rows for all observations directly
+      (allObservations || []).forEach((obs) => {
+        // Find the session for this observation
+        const session = filteredSessions.find((s) => s.id === obs.session_id);
+        if (session) {
+          // Format date in Peru timezone (UTC-5)
+          const sessionDate = new Date(session.start_time);
+          const peruDate = new Date(sessionDate.getTime() - 5 * 60 * 60 * 1000); // Convert to Peru time
+          const formattedDate = peruDate.toLocaleDateString("es-PE", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            timeZone: "America/Lima",
           });
-        } else {
-          // If no observations, add a row indicating no data
+
+          const questionType = (obs.project_observation_options as any)?.question_type || "unknown";
+          const questionName = (obs.project_observation_options as any)?.name || "Unknown Question";
+          
+          // Debug counter questions specifically
+          if (questionType === "counter") {
+            console.log("🔍 Counter question debug:", {
+              sessionId: session.id,
+              questionName,
+              questionType,
+              rawResponse: obs.response,
+              responseType: typeof obs.response,
+              formattedResponse: formatResponseForCSV(obs.response, questionType)
+            });
+          }
+
           csvData.push([
             session.id,
             formattedDate,
-            "Sin datos",
-            "No hay observaciones registradas",
+            questionName,
+            String(
+              formatResponseForCSV(
+                obs.response,
+                questionType
+              )
+            ),
           ]);
         }
       });
@@ -703,7 +675,7 @@ function SessionsContent() {
       URL.revokeObjectURL(url);
 
       showToast(
-        `Exportadas ${csvData.length} observaciones de ${filteredSessions.length} sesiones exitosamente`,
+        `Exportadas ${csvData.length} observaciones exitosamente`,
         "success"
       );
     } catch (error) {

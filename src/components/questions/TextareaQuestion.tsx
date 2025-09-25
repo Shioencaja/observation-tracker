@@ -34,12 +34,12 @@ export default function TextareaQuestion({
   // Debounced onChange handler
   const handleInputChange = (inputValue: string) => {
     setLocalValue(inputValue);
-    
+
     // Clear existing debounce timer
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
-    
+
     // Set new debounce timer (500ms delay)
     debounceRef.current = setTimeout(() => {
       onChange(inputValue);

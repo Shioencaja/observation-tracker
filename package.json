@@ -1,6 +1,7 @@
 {
-  "name": "toolkit-pxd",
-  "version": "0.1.0",
+  "name": "ballon-saas",
+  "version": "1.0.0",
+  "description": "Multi-organization observation tracking platform with role-based access control",
   "private": true,
   "scripts": {
     "dev": "NODE_OPTIONS='--no-deprecation' next dev --turbopack",

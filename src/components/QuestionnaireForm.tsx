@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tables } from "@/types/supabase";
@@ -8,6 +8,7 @@ import QuestionRenderer from "./questions/QuestionRenderer";
 import { observationService } from "@/services/observation-service";
 import { questionService } from "@/services/question-service";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/lib/supabase";
 
 interface Question {
   id: string;
@@ -60,6 +61,7 @@ export default function QuestionnaireForm({
   isLoading = false,
   observationOptions = [],
   selectedSessionId,
+  projectId,
   isSessionFinished = false,
   onFinishSession,
   onCreateSession,
@@ -81,127 +83,37 @@ export default function QuestionnaireForm({
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
-  const autoSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const lastSavedRef = useRef<Record<string, any>>({});
 
-  // Convert observation options to questions format
-  console.log("🔄 Converting observation options to questions:", {
-    observationOptionsCount: observationOptions.length,
-    questionsCount: questions.length,
-  });
+  // Get current user
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id || null);
+    };
+    getCurrentUser();
+  }, []);
 
-  const convertedQuestions: Question[] = observationOptions.map((option) => ({
-    id: option.id,
-    name: option.name,
-    question_type: option.question_type,
-    options: option.options || [],
-  }));
+  // Convert observation options to questions format
+  const convertedQuestions = useMemo(() => {
+    return observationOptions.map((option) => ({
+      id: option.id,
+      name: option.name,
+      question_type: option.question_type,
+      options: option.options || [],
+    }));
+  }, [observationOptions]);
 
   // Use converted questions if no questions prop provided
-  const displayQuestions =
-    questions.length > 0 ? questions : convertedQuestions;
+  const displayQuestions = useMemo(() => {
+    return questions.length > 0 ? questions : convertedQuestions;
+  }, [questions, convertedQuestions]);
 
-  console.log("✅ Display questions prepared:", {
-    displayQuestionsCount: displayQuestions.length,
-    questionTypes: displayQuestions.map((q) => q.question_type),
-  });
-
-  // Auto-save function
-  const autoSave = useCallback(async () => {
-    if (isSessionFinished || !selectedSessionId || !hasChanges || isLoading) {
-      return;
-    }
-
-    setIsAutoSaving(true);
-    try {
-      // Double-check that session still exists before saving
-      if (!selectedSessionId) {
-        console.log("Session no longer exists, skipping auto-save");
-        return;
-      }
-      // Save each response as an observation
-      for (const [questionId, response] of Object.entries(responses)) {
-        if (response !== null && response !== undefined && response !== "") {
-          const responseString =
-            typeof response === "string" ? response : JSON.stringify(response);
-
-          // Check if this is a voice response and if we're updating an existing one
-          const isVoiceResponse = responseString.includes("[Audio:");
-          const previousResponse = lastSavedRef.current[questionId];
-          const isUpdatingVoice =
-            isVoiceResponse &&
-            previousResponse &&
-            previousResponse !== responseString;
-
-          if (isUpdatingVoice) {
-            // Use voice cleanup function for voice recording updates
-            const { data: existing } =
-              await observationService.getObservationsBySession(
-                selectedSessionId
-              );
-            const existingObservation = existing?.find(
-              (obs) => obs.project_observation_option_id === questionId
-            );
-
-            if (existingObservation) {
-              const { error } =
-                await observationService.updateObservationWithVoiceCleanup(
-                  existingObservation.id,
-                  { response: responseString },
-                  previousResponse
-                );
-
-              if (error) {
-                console.error("Error auto-saving voice observation:", error);
-              }
-            }
-          } else {
-            // Use regular upsert for non-voice or new observations
-            const { error } = await observationService.upsertObservation({
-              session_id: selectedSessionId,
-              project_observation_option_id: questionId,
-              response: responseString,
-            });
-
-            if (error) {
-              console.error("Error auto-saving observation:", error);
-            }
-          }
-        }
-      }
-
-      // Update last saved state
-      lastSavedRef.current = { ...responses };
-      setHasChanges(false);
-      console.log("✅ Auto-saved questionnaire responses");
-    } catch (error) {
-      console.error("Error during auto-save:", error);
-    } finally {
-      setIsAutoSaving(false);
-    }
-  }, [responses, selectedSessionId, isSessionFinished, hasChanges, isLoading]);
-
-  // Set up auto-save timer
-  useEffect(() => {
-    if (hasChanges && !isSessionFinished && !isLoading) {
-      // Clear existing timer
-      if (autoSaveRef.current) {
-        clearTimeout(autoSaveRef.current);
-      }
-
-      // Set new timer for 10 seconds
-      autoSaveRef.current = setTimeout(() => {
-        autoSave();
-      }, 10000);
-    }
-
-    // Cleanup on unmount or when dependencies change
-    return () => {
-      if (autoSaveRef.current) {
-        clearTimeout(autoSaveRef.current);
-      }
-    };
-  }, [hasChanges, autoSave, isSessionFinished, isLoading]);
+  // Note: Autosave functionality has been completely disabled
+  // Users must manually save their changes using the save button
 
   // Check for changes
   useEffect(() => {
@@ -257,33 +169,36 @@ export default function QuestionnaireForm({
     });
   }, [responses, displayQuestions]);
 
-  // Manual save function
+  // Manual save function - no validation required
   const handleManualSave = async () => {
     if (!selectedSessionId || isSessionFinished) return;
 
     setIsManualSaving(true);
     try {
-      // Validate all questions first
-      if (!validateAllQuestions()) {
+      // Save all responses (no validation required for manual save)
+      if (!currentUserId || !projectId) {
         toast({
-          title: "Error de validación",
+          title: "Error al guardar",
           description:
-            "Por favor completa todas las preguntas requeridas antes de guardar.",
+            "No se pudo obtener la información del usuario o proyecto",
           variant: "destructive",
         });
         return;
       }
 
-      // Save all responses
       for (const [questionId, response] of Object.entries(responses)) {
         if (response !== null && response !== undefined && response !== "") {
           const responseString =
             typeof response === "string" ? response : JSON.stringify(response);
 
-          const { error } = await observationService.upsertObservation({
+          const { data, error } = await observationService.upsertObservation({
             session_id: selectedSessionId,
             project_observation_option_id: questionId,
             response: responseString,
+            project_id: projectId,
+            user_id: currentUserId,
+            agency: null, // Add agency field
+            alias: null, // Add alias field
           });
 
           if (error) {
@@ -308,8 +223,6 @@ export default function QuestionnaireForm({
         description: "Todas las respuestas han sido guardadas correctamente.",
         variant: "default",
       });
-
-      console.log("✅ Manual save completed successfully");
     } catch (error) {
       console.error("Error during manual save:", error);
       toast({
@@ -384,15 +297,8 @@ export default function QuestionnaireForm({
     [onQuestionDuplicated]
   );
 
-  // Save changes when session changes (cleanup effect)
-  useEffect(() => {
-    return () => {
-      // Save any pending changes when component unmounts or session changes
-      if (hasChanges && !isSessionFinished && selectedSessionId) {
-        autoSave();
-      }
-    };
-  }, [selectedSessionId, hasChanges, isSessionFinished, autoSave]);
+  // Note: Autosave on session changes has been disabled
+  // Users must manually save their changes
 
   // Load existing observations when session changes
   useEffect(() => {
@@ -476,12 +382,6 @@ export default function QuestionnaireForm({
   // Manual save is now handled by auto-save, so we don't need handleSubmit
 
   const renderQuestion = (question: Question) => {
-    console.log("🔄 Rendering question in QuestionnaireForm:", {
-      questionId: question.id,
-      questionName: question.name,
-      questionType: question.question_type,
-    });
-
     const hasError = validationErrors[question.id];
     const isRequired =
       !isSessionFinished &&
@@ -560,7 +460,7 @@ export default function QuestionnaireForm({
               !isManualSaving &&
               !isSessionFinished &&
               areAllQuestionsAnswered() && (
-                <span className="text-green-600">✓ Completado y guardado</span>
+                <span className="text-green-600">✓ Listo para finalizar</span>
               )}
             {!hasChanges &&
               !isAutoSaving &&
@@ -568,7 +468,7 @@ export default function QuestionnaireForm({
               !isSessionFinished &&
               !areAllQuestionsAnswered() && (
                 <span className="text-orange-600">
-                  ⚠️ Preguntas requeridas pendientes
+                  ⚠️ Preguntas requeridas pendientes para finalizar
                 </span>
               )}
           </div>
@@ -607,10 +507,6 @@ export default function QuestionnaireForm({
         ) : (
           <div className="space-y-6">
             {(() => {
-              console.log("🔄 About to render questions:", {
-                displayQuestionsCount: displayQuestions.length,
-                questionIds: displayQuestions.map((q) => q.id),
-              });
               return displayQuestions.map(renderQuestion);
             })()}
 
@@ -625,7 +521,7 @@ export default function QuestionnaireForm({
                     variant="outline"
                     className="px-6"
                   >
-                    {isManualSaving ? "Guardando..." : "Guardar Cambios"}
+                    {isManualSaving ? "Guardando..." : "Guardar (Opcional)"}
                   </Button>
 
                   {/* Finish Session Button */}
@@ -634,10 +530,7 @@ export default function QuestionnaireForm({
                       type="button"
                       onClick={handleFinishSession}
                       disabled={
-                        isLoading ||
-                        isFinishing ||
-                        !areAllQuestionsAnswered() ||
-                        hasChanges
+                        isLoading || isFinishing || !areAllQuestionsAnswered()
                       }
                       variant="destructive"
                       className="px-6"

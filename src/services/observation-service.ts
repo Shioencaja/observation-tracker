@@ -13,6 +13,10 @@ export interface CreateObservationData {
   session_id: string;
   project_observation_option_id: string;
   response: string;
+  project_id: string;
+  user_id: string;
+  agency?: string | null;
+  alias?: string | null;
 }
 
 export interface UpdateObservationData {
@@ -82,7 +86,14 @@ export const observationService = {
         const { data, error } = await supabase
           .from("observations")
           .insert({
-            ...observationData,
+            session_id: observationData.session_id,
+            project_observation_option_id:
+              observationData.project_observation_option_id,
+            response: observationData.response,
+            project_id: observationData.project_id,
+            user_id: observationData.user_id,
+            agency: observationData.agency || null,
+            alias: observationData.alias || null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })

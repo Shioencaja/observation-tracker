@@ -49,14 +49,6 @@ export default function QuestionRenderer({
   // Normalize question type to handle any whitespace or encoding issues
   const normalizedQuestionType = question.question_type?.trim().toLowerCase();
 
-  console.log("🔍 Rendering question:", {
-    questionId: question.id,
-    questionName: question.name,
-    questionType: question.question_type,
-    normalizedQuestionType,
-    value: value,
-  });
-
   try {
     switch (normalizedQuestionType) {
       case "text":
