@@ -7,13 +7,17 @@ export interface Project {
   created_at: string;
   updated_at: string;
   session_count?: number;
+  is_finished?: boolean;
 }
+
+export type UserRole = "creator" | "admin" | "editor" | "viewer";
 
 export interface ProjectUser {
   id: string;
   project_id: string;
   user_id: string;
   added_by: string;
+  role: UserRole;
   created_at: string;
   user_email?: string;
   user_name?: string;
@@ -34,6 +38,9 @@ export interface ProjectObservationOption {
     | "voice";
   options: string[];
   is_visible: boolean;
+  is_mandatory?: boolean;
+  depends_on_question_id?: string | null;
+  depends_on_answer?: string | null;
   order: number;
   created_at: string;
   updated_at: string;

@@ -227,6 +227,14 @@ function SessionsPageContent() {
   const createNewSession = async () => {
     if (!user || !project) return;
 
+    // Prevent creating sessions if project is finished
+    if (project.is_finished) {
+      alert(
+        "Este proyecto ha sido finalizado. No se pueden crear nuevas sesiones."
+      );
+      return;
+    }
+
     setIsCreatingSession(true);
     try {
       // Create session with the selected date at the current time

@@ -2,12 +2,25 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { Loader2, ArrowLeft, Trash2, X, GripVertical } from "lucide-react";
+import {
+  Loader2,
+  ArrowLeft,
+  Trash2,
+  X,
+  GripVertical,
+  Edit2,
+  Save,
+  Plus,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -29,51 +42,58 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
+  Project,
+  ProjectObservationOption,
+  UserRole,
+} from "@/types/observation";
+import QuestionCard, { Question } from "@/components/QuestionCard";
+import UserManagement from "@/components/UserManagement";
+import { useProjectRole } from "@/hooks/use-project-role";
 import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { Project, ProjectObservationOption } from "@/types/observation";
+  canAccessSettings,
+  canEditProject,
+  canManageUsers,
+  canManageQuestions,
+  canDeleteProject,
+  canFinishProject,
+  canAddAgencies,
+} from "@/lib/roles";
 
 // Draggable Option Component
 interface DraggableOptionProps {
   option: ProjectObservationOption;
   index: number;
+  totalOptions: number;
+  options: ProjectObservationOption[];
   onDelete: (id: string) => void;
   onToggleVisibility: (id: string, isVisible: boolean) => void;
+  onUpdate: (id: string, updates: Partial<ProjectObservationOption>) => void;
+  onMoveUp: (index: number) => void;
+  onMoveDown: (index: number) => void;
 }
 
 function DraggableOption({
   option,
   index,
+  totalOptions,
+  options,
   onDelete,
   onToggleVisibility,
+  onUpdate,
+  onMoveUp,
+  onMoveDown,
 }: DraggableOptionProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: `option-${option.id}` });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(option.name);
+  const [editQuestionType, setEditQuestionType] = useState(
+    option.question_type
+  );
+  const [editOptions, setEditOptions] = useState(option.options || []);
+  const [newOption, setNewOption] = useState("");
+  const [editIsMandatory, setEditIsMandatory] = useState(
+    option.is_mandatory || false
+  );
+  const [isSaving, setIsSaving] = useState(false);
 
   const getQuestionTypeLabel = (type: string) => {
     switch (type) {
@@ -96,115 +116,514 @@ function DraggableOption({
     }
   };
 
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 ${
-        isDragging ? "shadow-lg border-blue-300" : ""
-      }`}
-    >
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 rounded"
-        >
-          <GripVertical size={16} className="text-gray-400" />
-        </div>
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <span className="font-medium text-gray-900 truncate">
-            {option.name}
-          </span>
+  const handleSave = async () => {
+    if (!editName.trim()) return;
+
+    setIsSaving(true);
+    try {
+      await onUpdate(option.id, {
+        name: editName.trim(),
+        description: null,
+        question_type: editQuestionType,
+        options: editOptions.length > 0 ? editOptions : null,
+        is_mandatory: editIsMandatory,
+      });
+      setIsEditing(false);
+    } catch (error) {
+      console.error("Error saving question:", error);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditName(option.name);
+    setEditQuestionType(option.question_type);
+    setEditOptions(option.options || []);
+    setEditIsMandatory(option.is_mandatory || false);
+    setIsEditing(false);
+  };
+
+  const addOption = () => {
+    if (newOption.trim() && !editOptions.includes(newOption.trim())) {
+      setEditOptions([...editOptions, newOption.trim()]);
+      setNewOption("");
+    }
+  };
+
+  const removeOption = (optionToRemove: string) => {
+    setEditOptions(editOptions.filter((opt) => opt !== optionToRemove));
+  };
+
+  if (isEditing) {
+    return (
+      <div className="bg-white border border-blue-300 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+        {/* Header */}
+        <div className="flex items-center justify-between p-3 border-b border-blue-200 bg-blue-50/50 rounded-t-lg">
+          <div className="flex items-center space-x-2">
+            <div className="flex flex-col gap-0.5">
+              <Button
+                onClick={() => onMoveUp(index)}
+                disabled={index === 0}
+                variant="ghost"
+                size="sm"
+                className="h-4 w-5 p-0 text-blue-400 hover:text-blue-600 hover:bg-blue-100 disabled:opacity-30"
+                title="Mover hacia arriba"
+              >
+                <ChevronUp size={14} />
+              </Button>
+              <Button
+                onClick={() => onMoveDown(index)}
+                disabled={index === totalOptions - 1}
+                variant="ghost"
+                size="sm"
+                className="h-4 w-5 p-0 text-blue-400 hover:text-blue-600 hover:bg-blue-100 disabled:opacity-30"
+                title="Mover hacia abajo"
+              >
+                <ChevronDown size={14} />
+              </Button>
+            </div>
+            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+              <span className="text-xs font-bold text-white">{index + 1}</span>
+            </div>
+            <h4 className="text-sm font-semibold text-gray-900">
+              Editando Pregunta {index + 1}
+            </h4>
+          </div>
           <div className="flex items-center gap-2">
-            <Badge
+            <Button
+              onClick={handleSave}
+              disabled={isSaving || !editName.trim()}
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white h-7 text-xs px-3"
+            >
+              {isSaving ? (
+                <Loader2 size={12} className="mr-1 animate-spin" />
+              ) : (
+                <Save size={12} className="mr-1" />
+              )}
+              Guardar
+            </Button>
+            <Button
+              onClick={handleCancel}
               variant="outline"
-              className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200"
+              size="sm"
+              className="h-7 text-xs px-3"
             >
-              {getQuestionTypeLabel(option.question_type)}
-            </Badge>
-            <Badge
-              className={`text-xs px-2 py-1 ${
-                option.is_visible
-                  ? "bg-green-100 text-green-800 border-green-200"
-                  : "bg-gray-100 text-gray-600 border-gray-200"
-              }`}
-            >
-              {option.is_visible ? "Visible" : "Oculta"}
-            </Badge>
-            {option.description && (
-              <span className="text-xs text-gray-500 truncate max-w-32">
-                {option.description}
-              </span>
-            )}
+              Cancelar
+            </Button>
           </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onToggleVisibility(option.id, !option.is_visible)}
-          className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
-          title={option.is_visible ? "Ocultar opción" : "Mostrar opción"}
-        >
-          {option.is_visible ? (
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-              />
-            </svg>
-          ) : (
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"
-              />
-            </svg>
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onDelete(option.id)}
-          className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-          title="Eliminar opción"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+
+        {/* Content */}
+        <div className="p-3 space-y-3">
+          {/* Question Name */}
+          <div className="space-y-1">
+            <Label className="text-xs font-medium text-gray-700">
+              Nombre de la Pregunta *
+            </Label>
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Ej: ¿Cómo se comporta el usuario?"
+              className="text-sm h-8 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
-          </svg>
-        </Button>
+          </div>
+
+          {/* Question Type and Mandatory Toggle */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs font-medium text-gray-700">
+                Tipo de Pregunta
+              </Label>
+              <Select
+                value={editQuestionType}
+                onValueChange={(value) => setEditQuestionType(value)}
+              >
+                <SelectTrigger className="w-full h-8 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                  <SelectValue placeholder="Seleccionar tipo..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="string">📝 Texto libre</SelectItem>
+                  <SelectItem value="boolean">✅ Sí/No</SelectItem>
+                  <SelectItem value="radio">🔘 Opción única</SelectItem>
+                  <SelectItem value="checkbox">
+                    ☑️ Múltiples opciones
+                  </SelectItem>
+                  <SelectItem value="counter">🔢 Contador</SelectItem>
+                  <SelectItem value="timer">⏱️ Temporizador</SelectItem>
+                  <SelectItem value="voice">🎙️ Grabación de voz</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 pt-5">
+              <Label className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                Obligatoria
+              </Label>
+              <Switch
+                checked={editIsMandatory}
+                onCheckedChange={setEditIsMandatory}
+              />
+            </div>
+          </div>
+
+          {/* Options for Radio/Checkbox */}
+          {(editQuestionType === "radio" ||
+            editQuestionType === "checkbox") && (
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium text-gray-700">
+                  Opciones de Respuesta
+                </Label>
+                <Button
+                  onClick={addOption}
+                  variant="outline"
+                  size="sm"
+                  disabled={editOptions.length >= 10}
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50 h-7 text-xs px-2"
+                >
+                  <Plus size={12} className="mr-1" />
+                  Agregar
+                </Button>
+              </div>
+
+              <div className="space-y-2">
+                {editOptions.map((opt, optIndex) => (
+                  <div key={optIndex} className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-medium text-gray-600">
+                        {optIndex + 1}
+                      </span>
+                    </div>
+                    <Input
+                      value={opt}
+                      onChange={(e) => {
+                        const newOptions = [...editOptions];
+                        newOptions[optIndex] = e.target.value;
+                        setEditOptions(newOptions);
+                      }}
+                      placeholder={`Opción ${optIndex + 1}`}
+                      className="flex-1 h-7 text-sm"
+                    />
+                    <Button
+                      onClick={() => removeOption(opt)}
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors flex-shrink-0"
+                    >
+                      <X size={12} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2">
+                <Input
+                  value={newOption}
+                  onChange={(e) => setNewOption(e.target.value)}
+                  placeholder="Agregar nueva opción"
+                  className="flex-1 h-7 text-sm"
+                  onKeyPress={(e) => e.key === "Enter" && addOption()}
+                />
+                <Button
+                  onClick={addOption}
+                  disabled={!newOption.trim()}
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                >
+                  <Plus size={12} className="mr-1" />
+                  Agregar
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Conditional Logic - All Questions Can Be Conditional (except the first one) */}
+          {index > 0 && (
+            <div className="space-y-2 border-t pt-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-medium text-gray-700">
+                  Lógica Condicional
+                </Label>
+                <Button
+                  onClick={() => {
+                    onUpdate(option.id, { depends_on_question: 0 });
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="text-blue-600 border-blue-200 hover:bg-blue-50 h-7 text-xs px-2"
+                >
+                  <Plus size={12} className="mr-1" />
+                  Agregar Condición
+                </Button>
+              </div>
+
+              {option.depends_on_question !== undefined &&
+              option.depends_on_question !== null &&
+              option.depends_on_question >= 0 ? (
+                <div className="space-y-2 p-3 bg-blue-50 rounded-md border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs font-medium text-gray-700 whitespace-nowrap">
+                      Mostrar esta pregunta si:
+                    </Label>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-gray-600 mb-1 block">
+                        Pregunta anterior
+                      </Label>
+                      <Select
+                        value={option.depends_on_question?.toString() || ""}
+                        onValueChange={(value) =>
+                          onUpdate(option.id, {
+                            depends_on_question: parseInt(value),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-7 text-sm">
+                          <SelectValue placeholder="Seleccionar pregunta" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {options
+                            .filter(
+                              (opt, optIndex) =>
+                                optIndex < index &&
+                                opt.id !== option.id &&
+                                opt.question_type === "radio"
+                            )
+                            .map((opt, optIndex) => (
+                              <SelectItem
+                                key={opt.id}
+                                value={optIndex.toString()}
+                              >
+                                {opt.name}
+                              </SelectItem>
+                            ))}
+                          {options.filter(
+                            (opt, optIndex) =>
+                              optIndex < index &&
+                              opt.id !== option.id &&
+                              opt.question_type === "radio"
+                          ).length === 0 && (
+                            <div className="px-2 py-1.5 text-xs text-gray-500">
+                              No hay preguntas de opción única anteriores
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs text-gray-600 mb-1 block">
+                        Respuesta específica
+                      </Label>
+                      {option.depends_on_question !== undefined &&
+                      option.depends_on_question >= 0 ? (
+                        (() => {
+                          const selectedQuestion =
+                            options[option.depends_on_question];
+
+                          // Only radio questions are supported for conditional logic
+                          if (
+                            selectedQuestion?.question_type === "radio" &&
+                            selectedQuestion?.options?.length > 0
+                          ) {
+                            return (
+                              <Select
+                                value={option.depends_on_answer || ""}
+                                onValueChange={(value) =>
+                                  onUpdate(option.id, {
+                                    depends_on_answer: value,
+                                  })
+                                }
+                              >
+                                <SelectTrigger className="h-7 text-sm">
+                                  <SelectValue placeholder="Seleccionar respuesta" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {selectedQuestion.options.map(
+                                    (opt, optIndex) => (
+                                      <SelectItem key={optIndex} value={opt}>
+                                        {opt}
+                                      </SelectItem>
+                                    )
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            );
+                          }
+
+                          return (
+                            <div className="h-7 px-3 py-1 text-xs text-gray-500 bg-gray-50 rounded border border-gray-200 flex items-center">
+                              La pregunta seleccionada no tiene opciones
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="h-7 px-3 py-1 text-xs text-gray-500 bg-gray-50 rounded border border-gray-200 flex items-center">
+                          Selecciona una pregunta anterior primero
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => {
+                        onUpdate(option.id, {
+                          depends_on_question: null,
+                          depends_on_answer: null,
+                        });
+                      }}
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <X size={12} className="mr-1" />
+                      Remover Condición
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-2 text-gray-500 bg-gray-50 rounded-md border-2 border-dashed border-gray-200">
+                  <p className="text-xs">Esta pregunta se mostrará siempre</p>
+                  <p className="text-xs mt-1">
+                    Haz clic en "Agregar Condición" para hacerla condicional
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+      {/* Header */}
+      <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-gray-50/50 rounded-t-lg">
+        <div className="flex items-center space-x-2">
+          <div className="flex flex-col gap-0.5">
+            <Button
+              onClick={() => onMoveUp(index)}
+              disabled={index === 0}
+              variant="ghost"
+              size="sm"
+              className="h-4 w-5 p-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30"
+              title="Mover hacia arriba"
+            >
+              <ChevronUp size={14} />
+            </Button>
+            <Button
+              onClick={() => onMoveDown(index)}
+              disabled={index === totalOptions - 1}
+              variant="ghost"
+              size="sm"
+              className="h-4 w-5 p-0 text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-30"
+              title="Mover hacia abajo"
+            >
+              <ChevronDown size={14} />
+            </Button>
+          </div>
+          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+            <span className="text-xs font-bold text-white">{index + 1}</span>
+          </div>
+          <h4 className="text-sm font-semibold text-gray-900 truncate">
+            {option.name}
+          </h4>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsEditing(true)}
+            className="h-7 w-7 p-0 hover:bg-blue-50 hover:text-blue-600"
+            title="Editar pregunta"
+          >
+            <Edit2 size={12} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onToggleVisibility(option.id, !option.is_visible)}
+            className="h-7 w-7 p-0 hover:bg-blue-50 hover:text-blue-600"
+            title={option.is_visible ? "Ocultar opción" : "Mostrar opción"}
+          >
+            {option.is_visible ? (
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.878 9.878L3 3m6.878 6.878L21 21"
+                />
+              </svg>
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(option.id)}
+            className="h-7 w-7 p-0 hover:bg-red-50 hover:text-red-600"
+            title="Eliminar opción"
+          >
+            <Trash2 size={12} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge
+            variant="outline"
+            className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200"
+          >
+            {getQuestionTypeLabel(option.question_type)}
+          </Badge>
+          <Badge
+            className={`text-xs px-2 py-1 ${
+              option.is_visible
+                ? "bg-green-100 text-green-800 border-green-200"
+                : "bg-gray-100 text-gray-600 border-gray-200"
+            }`}
+          >
+            {option.is_visible ? "Visible" : "Oculta"}
+          </Badge>
+          {(option.is_mandatory || false) && (
+            <Badge className="text-xs px-2 py-1 bg-red-100 text-red-800 border-red-200">
+              Obligatoria
+            </Badge>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -218,17 +637,20 @@ function ProjectSettingsPageContent() {
 
   const [project, setProject] = useState<Project | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
+
+  // Get user's role in this project
+  const { role: userRole, isLoading: isLoadingRole } = useProjectRole(
+    projectId,
+    user?.id || "",
+    project?.created_by || ""
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isFinishDialogOpen, setIsFinishDialogOpen] = useState(false);
+  const [isFinishingProject, setIsFinishingProject] = useState(false);
   const [options, setOptions] = useState<ProjectObservationOption[]>([]);
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
-  const [newOptionName, setNewOptionName] = useState("");
-  const [newOptionType, setNewOptionType] = useState<
-    "string" | "boolean" | "radio" | "checkbox" | "counter" | "timer" | "voice"
-  >("string");
-  const [newOptionOptions, setNewOptionOptions] = useState<string[]>([]);
-  const [newOptionOption, setNewOptionOption] = useState("");
   const [isAddingOption, setIsAddingOption] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -246,6 +668,7 @@ function ProjectSettingsPageContent() {
       id: string;
       user_id: string;
       user_email: string;
+      role: "admin" | "editor" | "viewer";
       created_at: string;
     }>
   >([]);
@@ -256,52 +679,64 @@ function ProjectSettingsPageContent() {
   const [isAddingUser, setIsAddingUser] = useState(false);
   const [isRemovingUser, setIsRemovingUser] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedUserRole, setSelectedUserRole] = useState<
+    "admin" | "editor" | "viewer"
+  >("viewer");
 
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  // Handle drag end
-  const handleDragEnd = async (event: any) => {
-    const { active, over } = event;
-
-    if (active.id !== over.id) {
-      const oldIndex = options.findIndex(
-        (option) => `option-${option.id}` === active.id
-      );
-      const newIndex = options.findIndex(
-        (option) => `option-${option.id}` === over.id
-      );
-
-      const newOptions = arrayMove(options, oldIndex, newIndex);
-
-      // Update local state immediately for responsive UI
+  // Move option up
+  const moveOptionUp = async (index: number) => {
+    if (index > 0) {
+      const newOptions = [...options];
+      [newOptions[index - 1], newOptions[index]] = [
+        newOptions[index],
+        newOptions[index - 1],
+      ];
       setOptions(newOptions);
-      setHasUnsavedChanges(true);
 
       // Update order in database
       try {
-        const updates = newOptions.map((option, index) => ({
-          id: option.id,
-          order: index + 1,
-        }));
+        await supabase
+          .from("project_observation_options")
+          .update({ order: index })
+          .eq("id", newOptions[index].id);
 
-        // Update all options with their new order
-        for (const update of updates) {
-          await supabase
-            .from("project_observation_options")
-            .update({ order: update.order })
-            .eq("id", update.id);
-        }
+        await supabase
+          .from("project_observation_options")
+          .update({ order: index + 1 })
+          .eq("id", newOptions[index - 1].id);
       } catch (error) {
         console.error("Error updating question order:", error);
-        // Revert local state on error
+        // Revert on error
         setOptions(options);
-        setHasUnsavedChanges(false);
+      }
+    }
+  };
+
+  // Move option down
+  const moveOptionDown = async (index: number) => {
+    if (index < options.length - 1) {
+      const newOptions = [...options];
+      [newOptions[index], newOptions[index + 1]] = [
+        newOptions[index + 1],
+        newOptions[index],
+      ];
+      setOptions(newOptions);
+
+      // Update order in database
+      try {
+        await supabase
+          .from("project_observation_options")
+          .update({ order: index + 1 })
+          .eq("id", newOptions[index].id);
+
+        await supabase
+          .from("project_observation_options")
+          .update({ order: index + 2 })
+          .eq("id", newOptions[index + 1].id);
+      } catch (error) {
+        console.error("Error updating question order:", error);
+        // Revert on error
+        setOptions(options);
       }
     }
   };
@@ -554,6 +989,7 @@ function ProjectSettingsPageContent() {
         project_id: project.id,
         user_id: selectedUserId,
         added_by: user.id,
+        role: selectedUserRole,
       });
 
       if (error) {
@@ -578,6 +1014,7 @@ function ProjectSettingsPageContent() {
       }
       await loadProjectUsers();
       setSelectedUserId("");
+      setSelectedUserRole("viewer");
     } catch (error) {
       console.error("Error adding user to project:", error);
       console.error("Error details:", {
@@ -729,22 +1166,6 @@ function ProjectSettingsPageContent() {
     }, 5000);
   };
 
-  // Add option option (for radio/checkbox types)
-  const addOptionOption = () => {
-    if (
-      newOptionOption.trim() &&
-      !newOptionOptions.includes(newOptionOption.trim())
-    ) {
-      setNewOptionOptions([...newOptionOptions, newOptionOption.trim()]);
-      setNewOptionOption("");
-    }
-  };
-
-  // Remove option option
-  const removeOptionOption = (option: string) => {
-    setNewOptionOptions(newOptionOptions.filter((o) => o !== option));
-  };
-
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
@@ -864,83 +1285,218 @@ function ProjectSettingsPageContent() {
 
     setIsDeletingProject(true);
     try {
-      const { error } = await supabase
+      console.log("🗑️ Starting project deletion:", project.id);
+
+      // Step 1: Get all sessions for this project to delete voice recordings
+      const { data: sessions, error: sessionsError } = await supabase
+        .from("sessions")
+        .select("id")
+        .eq("project_id", project.id);
+
+      if (sessionsError) {
+        console.error("Error fetching sessions:", sessionsError);
+        throw sessionsError;
+      }
+
+      // Step 2: Delete voice recordings from storage if sessions exist
+      if (sessions && sessions.length > 0) {
+        const sessionIds = sessions.map((s) => s.id);
+
+        // Get all observations with voice recordings
+        const { data: observations, error: obsError } = await supabase
+          .from("observations")
+          .select("response")
+          .in("session_id", sessionIds);
+
+        if (obsError) {
+          console.error("Error fetching observations:", obsError);
+          // Continue with deletion even if this fails
+        }
+
+        // Extract and delete voice recordings from Supabase Storage
+        if (observations && observations.length > 0) {
+          const voiceRecordings = observations
+            .map((obs) => {
+              if (
+                typeof obs.response === "string" &&
+                obs.response.includes("[Audio:")
+              ) {
+                const audioUrlMatch = obs.response.match(/\[Audio: (.*?)\]/);
+                if (audioUrlMatch) {
+                  const audioUrl = audioUrlMatch[1];
+                  const urlParts = audioUrl.split("/");
+                  const filename = urlParts[urlParts.length - 1];
+                  return filename;
+                }
+              }
+              return null;
+            })
+            .filter(Boolean);
+
+          if (voiceRecordings.length > 0) {
+            const { error: storageError } = await supabase.storage
+              .from("voice-recordings")
+              .remove(voiceRecordings as string[]);
+
+            if (storageError) {
+              console.error("Error deleting voice recordings:", storageError);
+              // Continue with deletion even if storage deletion fails
+            } else {
+              console.log(
+                `✅ Deleted ${voiceRecordings.length} voice recordings`
+              );
+            }
+          }
+        }
+
+        // Step 3: Delete all observations for this project
+        const { error: deleteObsError } = await supabase
+          .from("observations")
+          .delete()
+          .in("session_id", sessionIds);
+
+        if (deleteObsError) {
+          console.error("Error deleting observations:", deleteObsError);
+          throw new Error(
+            `Error al eliminar observaciones: ${deleteObsError.message}`
+          );
+        }
+        console.log("✅ Deleted observations");
+
+        // Step 4: Delete all sessions for this project
+        const { error: deleteSessionsError } = await supabase
+          .from("sessions")
+          .delete()
+          .eq("project_id", project.id);
+
+        if (deleteSessionsError) {
+          console.error("Error deleting sessions:", deleteSessionsError);
+          throw new Error(
+            `Error al eliminar sesiones: ${deleteSessionsError.message}`
+          );
+        }
+        console.log("✅ Deleted sessions");
+      }
+
+      // Step 5: Delete all observation options (questions) for this project
+      const { error: deleteOptionsError } = await supabase
+        .from("project_observation_options")
+        .delete()
+        .eq("project_id", project.id);
+
+      if (deleteOptionsError) {
+        console.error(
+          "Error deleting observation options:",
+          deleteOptionsError
+        );
+        throw new Error(
+          `Error al eliminar preguntas: ${deleteOptionsError.message}`
+        );
+      }
+      console.log("✅ Deleted observation options");
+
+      // Step 6: Delete project users (if table exists)
+      const { error: deleteUsersError } = await supabase
+        .from("project_users")
+        .delete()
+        .eq("project_id", project.id);
+
+      if (deleteUsersError && deleteUsersError.code !== "42P01") {
+        // Ignore "table doesn't exist" error
+        console.error("Error deleting project users:", deleteUsersError);
+        // Don't throw - continue with project deletion
+      } else if (!deleteUsersError) {
+        console.log("✅ Deleted project users");
+      }
+
+      // Step 7: Delete the project itself
+      const { error: deleteProjectError } = await supabase
         .from("projects")
         .delete()
         .eq("id", project.id)
         .eq("created_by", user.id);
 
-      if (error) throw error;
+      if (deleteProjectError) {
+        console.error("Error deleting project:", deleteProjectError);
+        throw new Error(
+          `Error al eliminar proyecto: ${deleteProjectError.message}`
+        );
+      }
+      console.log("✅ Deleted project");
 
       // Redirect to projects page
       router.push("/projects");
     } catch (error) {
       console.error("Error deleting project:", error);
-      setError("Error al eliminar el proyecto");
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Error inesperado al eliminar el proyecto"
+      );
     } finally {
       setIsDeletingProject(false);
       setIsDeleteDialogOpen(false);
     }
   };
 
+  const handleFinishProject = async () => {
+    if (!project || !user) return;
+
+    setIsFinishingProject(true);
+    try {
+      const { error } = await supabase
+        .from("projects")
+        .update({ is_finished: true })
+        .eq("id", project.id)
+        .eq("created_by", user.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProject({ ...project, is_finished: true });
+      setError(null);
+    } catch (error) {
+      console.error("Error finishing project:", error);
+      setError("Error al finalizar el proyecto");
+    } finally {
+      setIsFinishingProject(false);
+      setIsFinishDialogOpen(false);
+    }
+  };
+
   const handleAddOption = async () => {
-    if (!newOptionName.trim() || !project) return;
+    if (!project) return;
 
     setIsAddingOption(true);
     try {
-      // Try to insert with new columns first
       const insertData: {
         project_id: string;
         name: string;
         description: string | null;
         question_type: string;
-        options: string[];
+        options: string[] | null;
         is_visible: boolean;
-        sort_order?: number;
+        is_mandatory: boolean;
+        order: number;
       } = {
         project_id: project.id,
-        name: newOptionName.trim(),
+        name: "",
         description: null,
-        question_type: newOptionType,
-        options: newOptionOptions,
+        question_type: "string",
+        options: null,
         is_visible: true,
-        sort_order: options.length + 1,
+        is_mandatory: false,
+        order: options.length + 1,
       };
-
-      // Properties are already set in the object above
 
       const { error } = await supabase
         .from("project_observation_options")
         .insert(insertData);
 
       if (error) {
-        // If new columns don't exist, try without them
-        if (
-          error.message?.includes('column "question_type" does not exist') ||
-          error.message?.includes('column "options" does not exist')
-        ) {
-          console.log(
-            "New columns don't exist, inserting without question_type and options"
-          );
-          const { error: retryError } = await supabase
-            .from("project_observation_options")
-            .insert({
-              project_id: project.id,
-              name: newOptionName.trim(),
-              description: null,
-              is_visible: true,
-            });
-
-          if (retryError) throw retryError;
-        } else {
-          throw error;
-        }
+        throw error;
       }
 
-      setNewOptionName("");
-      setNewOptionType("string");
-      setNewOptionOptions([]);
-      setNewOptionOption("");
       loadObservationOptions();
     } catch (error) {
       console.error("Error adding observation option:", error);
@@ -985,6 +1541,35 @@ function ProjectSettingsPageContent() {
     }
   };
 
+  const handleUpdateOption = async (
+    optionId: string,
+    updates: Partial<ProjectObservationOption>
+  ) => {
+    try {
+      // Filter out conditional logic fields if they don't exist in the database yet
+      const { depends_on_question, depends_on_answer, ...dbUpdates } = updates;
+
+      // Only update database fields that exist
+      const { error } = await supabase
+        .from("project_observation_options")
+        .update(dbUpdates)
+        .eq("id", optionId);
+
+      if (error) throw error;
+
+      // Update local state with all updates (including conditional logic)
+      setOptions((prevOptions) =>
+        prevOptions.map((option) =>
+          option.id === optionId ? { ...option, ...updates } : option
+        )
+      );
+    } catch (error) {
+      console.error("Error updating option:", error);
+      setError("Error al actualizar la opción");
+      throw error; // Re-throw to let the component handle it
+    }
+  };
+
   const handleBackToProjects = () => {
     router.push("/projects");
   };
@@ -1005,6 +1590,34 @@ function ProjectSettingsPageContent() {
   }
 
   const isCreator = user.id === project.created_by;
+
+  // Check if user can access settings at all
+  if (!canAccessSettings(userRole)) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="max-w-md text-center px-6">
+          <div className="mb-6">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">🔒</span>
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              Acceso Restringido
+            </h2>
+            <p className="text-gray-600">
+              No tienes permisos para acceder a la configuración de este
+              proyecto. Los observadores solo pueden registrar sesiones.
+            </p>
+          </div>
+          <Button
+            onClick={() => router.push("/projects")}
+            className="bg-gray-900 hover:bg-gray-800 text-white"
+          >
+            Volver a Proyectos
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-muted/50 to-background">
@@ -1084,7 +1697,7 @@ function ProjectSettingsPageContent() {
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   placeholder="Nombre del proyecto"
-                  disabled={!isCreator}
+                  disabled={!canEditProject(userRole)}
                   className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
@@ -1101,11 +1714,11 @@ function ProjectSettingsPageContent() {
                   onChange={(e) => setEditDescription(e.target.value)}
                   placeholder="Descripción del proyecto (opcional)"
                   rows={3}
-                  disabled={!isCreator}
+                  disabled={!canEditProject(userRole)}
                   className="border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
-              {isCreator && (
+              {canEditProject(userRole) && (
                 <div className="flex justify-end pt-2">
                   <Button
                     onClick={handleUpdateProject}
@@ -1137,7 +1750,7 @@ function ProjectSettingsPageContent() {
           </div>
 
           {/* Agencies Management */}
-          {isCreator && (
+          {canAddAgencies(userRole) && (
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -1215,7 +1828,7 @@ function ProjectSettingsPageContent() {
           )}
 
           {/* User Management */}
-          {isCreator && (
+          {canManageUsers(userRole) && (
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -1225,19 +1838,40 @@ function ProjectSettingsPageContent() {
                   Gestiona quién puede acceder a este proyecto
                 </p>
               </div>
+              <div className="p-6">
+                <UserManagement
+                  projectId={project.id}
+                  projectCreatorId={project.created_by}
+                  currentUserId={user.id}
+                  currentUserRole={userRole}
+                  mode="edit"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* OLD USER MANAGEMENT - TO BE REMOVED */}
+          {false && isCreator && (
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+              <div className="px-6 py-4 border-b border-gray-100">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  OLD - Usuarios del Proyecto
+                </h2>
+              </div>
               <div className="p-6 space-y-4">
                 {/* Add User Section */}
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h3 className="text-sm font-medium text-gray-900 mb-3">
                     Agregar Usuario
                   </h3>
-                  <div className="flex gap-3">
-                    <div className="flex-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-[1fr,auto,auto] gap-3">
+                    <div>
                       <Select
                         value={selectedUserId}
                         onValueChange={setSelectedUserId}
+                        disabled={isAddingUser}
                       >
-                        <SelectTrigger className="w-full">
+                        <SelectTrigger>
                           <SelectValue placeholder="Seleccionar usuario..." />
                         </SelectTrigger>
                         <SelectContent>
@@ -1256,6 +1890,34 @@ function ProjectSettingsPageContent() {
                                 {user.email}
                               </SelectItem>
                             ))}
+                          {allUsers.filter(
+                            (u) =>
+                              !projectUsers.some(
+                                (pu) => pu.user_id === u.user_id
+                              )
+                          ).length === 0 && (
+                            <div className="px-2 py-1.5 text-sm text-gray-500">
+                              No hay usuarios disponibles
+                            </div>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="sm:w-48">
+                      <Select
+                        value={selectedUserRole}
+                        onValueChange={(value: "admin" | "editor" | "viewer") =>
+                          setSelectedUserRole(value)
+                        }
+                        disabled={isAddingUser}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="admin">Administrador</SelectItem>
+                          <SelectItem value="editor">Editor</SelectItem>
+                          <SelectItem value="viewer">Observador</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1325,16 +1987,30 @@ function ProjectSettingsPageContent() {
                                   {projectUser.user_email ||
                                     projectUser.user_id}
                                 </p>
-                                {projectUser.user_id ===
-                                  project?.created_by && (
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                {projectUser.user_id === project?.created_by ? (
+                                  <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
                                     Creador
-                                  </span>
+                                  </Badge>
+                                ) : (
+                                  (() => {
+                                    const roleColor = getRoleColor(
+                                      projectUser.role as UserRole
+                                    );
+                                    return (
+                                      <Badge
+                                        className={`${roleColor.bg} ${roleColor.text} hover:${roleColor.bg}`}
+                                      >
+                                        {getRoleLabel(
+                                          projectUser.role as UserRole
+                                        )}
+                                      </Badge>
+                                    );
+                                  })()
                                 )}
                               </div>
                               <p className="text-xs text-gray-500">
                                 {projectUser.user_id === project?.created_by
-                                  ? "Creador del proyecto"
+                                  ? "Control total del proyecto"
                                   : `Agregado el ${new Date(
                                       projectUser.created_at
                                     ).toLocaleDateString()}`}
@@ -1372,183 +2048,169 @@ function ProjectSettingsPageContent() {
           )}
 
           {/* Observation Options Management */}
-          {isCreator && (
+          {canManageQuestions(userRole) && (
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-lg font-semibold text-gray-900">
                   Opciones de Observación
                 </h2>
               </div>
-              <div className="p-6 space-y-6">
-                {/* Add New Option */}
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">
-                    Agregar Nueva Pregunta
-                  </h3>
-                  <div className="space-y-4">
-                    <div className="flex gap-3">
-                      <Input
-                        value={newOptionName}
-                        onChange={(e) => setNewOptionName(e.target.value)}
-                        placeholder="Pregunta"
-                        className="flex-1 border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none transition-colors"
-                      />
-                      <Select
-                        value={newOptionType}
-                        onValueChange={(value) =>
-                          setNewOptionType(
-                            value as
-                              | "string"
-                              | "boolean"
-                              | "radio"
-                              | "checkbox"
-                              | "counter"
-                              | "timer"
-                              | "voice"
-                          )
-                        }
-                      >
-                        <SelectTrigger className="min-w-[180px]">
-                          <SelectValue placeholder="Tipo de pregunta" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="string">Texto</SelectItem>
-                          <SelectItem value="boolean">Sí/No</SelectItem>
-                          <SelectItem value="radio">Opción única</SelectItem>
-                          <SelectItem value="checkbox">
-                            Múltiples opciones
-                          </SelectItem>
-                          <SelectItem value="counter">Contador</SelectItem>
-                          <SelectItem value="timer">Temporizador</SelectItem>
-                          <SelectItem value="voice">
-                            Grabación de voz
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {(newOptionType === "radio" ||
-                      newOptionType === "checkbox") && (
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">
-                          Opciones
-                        </Label>
-                        <div className="flex gap-2">
-                          <Input
-                            value={newOptionOption}
-                            onChange={(e) => setNewOptionOption(e.target.value)}
-                            placeholder="Agregar opción"
-                            className="flex-1 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                            onKeyPress={(e) =>
-                              e.key === "Enter" && addOptionOption()
-                            }
-                          />
-                          <Button
-                            onClick={addOptionOption}
-                            disabled={!newOptionOption.trim()}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Agregar
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {newOptionOptions.map((option, index) => (
-                            <Badge
-                              key={index}
-                              variant="secondary"
-                              className="bg-gray-100 text-gray-800"
-                            >
-                              {option}
-                              <button
-                                onClick={() => removeOptionOption(option)}
-                                className="ml-2 text-gray-600 hover:text-gray-800"
-                              >
-                                ×
-                              </button>
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex justify-end">
-                      <Button
-                        onClick={handleAddOption}
-                        disabled={
-                          isAddingOption ||
-                          !newOptionName.trim() ||
-                          ((newOptionType === "radio" ||
-                            newOptionType === "checkbox") &&
-                            newOptionOptions.length === 0)
-                        }
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4"
-                      >
-                        {isAddingOption ? (
-                          <>
-                            <Loader2 size={16} className="mr-2 animate-spin" />
-                            Agregando...
-                          </>
-                        ) : (
-                          "Agregar Pregunta"
-                        )}
-                      </Button>
-                    </div>
+              <div className="p-6 space-y-4">
+                {/* Questions List */}
+                {isLoadingOptions ? (
+                  <div className="text-center py-8">
+                    <Loader2
+                      size={20}
+                      className="animate-spin mx-auto mb-2 text-gray-400"
+                    />
+                    <p className="text-sm text-gray-500">
+                      Cargando opciones...
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      {options.map((option, index) => (
+                        <QuestionCard
+                          key={`option-${option.id}`}
+                          question={option}
+                          index={index}
+                          totalQuestions={options.length}
+                          allQuestions={options}
+                          onUpdate={(updates) =>
+                            handleUpdateOption(option.id, updates)
+                          }
+                          onRemove={() => {}}
+                          onMoveUp={() => moveOptionUp(index)}
+                          onMoveDown={() => moveOptionDown(index)}
+                          canDelete={
+                            userRole === "creator" || userRole === "admin"
+                          }
+                          canEdit={
+                            userRole === "creator" ||
+                            userRole === "admin" ||
+                            userRole === "editor"
+                          }
+                          mode="edit"
+                          onToggleVisibility={() =>
+                            handleToggleOptionVisibility(
+                              option.id,
+                              option.is_visible ?? true
+                            )
+                          }
+                          onDelete={() => handleDeleteOption(option.id)}
+                        />
+                      ))}
+                    </div>
 
-                {/* Existing Options */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-900 mb-3">
-                    Opciones Existentes
-                  </h3>
-                  {isLoadingOptions ? (
-                    <div className="text-center py-8">
-                      <Loader2
-                        size={20}
-                        className="animate-spin mx-auto mb-2 text-gray-400"
-                      />
-                      <p className="text-sm text-gray-500">
-                        Cargando opciones...
-                      </p>
-                    </div>
-                  ) : options.length === 0 ? (
-                    <div className="text-center py-8">
-                      <p className="text-sm text-gray-500">
-                        No hay opciones de observación
-                      </p>
-                    </div>
-                  ) : (
-                    <DndContext
-                      sensors={sensors}
-                      collisionDetection={closestCenter}
-                      onDragEnd={handleDragEnd}
+                    <Button
+                      onClick={handleAddOption}
+                      variant="outline"
+                      className="w-full"
+                      disabled={isAddingOption}
                     >
-                      <SortableContext
-                        items={options.map((option) => `option-${option.id}`)}
-                        strategy={verticalListSortingStrategy}
+                      {isAddingOption ? (
+                        <>
+                          <Loader2 size={16} className="mr-2 animate-spin" />
+                          Agregando...
+                        </>
+                      ) : (
+                        <>
+                          <Plus size={16} className="mr-2" />
+                          Agregar Pregunta
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Finish Project Section */}
+          {canFinishProject(userRole) && !project.is_finished && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg">
+              <div className="px-6 py-4 border-b border-orange-200">
+                <h2 className="text-lg font-semibold text-orange-800">
+                  Finalizar Proyecto
+                </h2>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4">
+                  <p className="text-sm text-orange-700">
+                    Finalizar el proyecto impedirá que los usuarios registren
+                    nuevas observaciones. Solo el creador del proyecto podrá
+                    acceder al historial.
+                  </p>
+                  <AlertDialog
+                    open={isFinishDialogOpen}
+                    onOpenChange={setIsFinishDialogOpen}
+                  >
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
                       >
-                        <div className="space-y-2">
-                          {options.map((option, index) => (
-                            <DraggableOption
-                              key={`option-${option.id}`}
-                              option={option}
-                              index={index}
-                              onDelete={handleDeleteOption}
-                              onToggleVisibility={handleToggleOptionVisibility}
-                            />
-                          ))}
-                        </div>
-                      </SortableContext>
-                    </DndContext>
-                  )}
+                        Finalizar Proyecto
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          ¿Finalizar proyecto?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Al finalizar el proyecto "{project.name}", los
+                          usuarios no podrán registrar más observaciones. Solo
+                          tú (el creador) podrás acceder al historial de
+                          sesiones y observaciones.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleFinishProject}
+                          disabled={isFinishingProject}
+                          className="bg-orange-600 hover:bg-orange-700 text-white"
+                        >
+                          {isFinishingProject ? (
+                            <>
+                              <Loader2
+                                size={16}
+                                className="mr-2 animate-spin"
+                              />
+                              Finalizando...
+                            </>
+                          ) : (
+                            "Finalizar Proyecto"
+                          )}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
             </div>
           )}
 
+          {/* Project Finished Notice */}
+          {project.is_finished && (
+            <div className="bg-gray-100 border border-gray-300 rounded-lg">
+              <div className="px-6 py-4">
+                <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                  <span>✅</span> Proyecto Finalizado
+                </h2>
+                <p className="text-sm text-gray-600 mt-2">
+                  Este proyecto ha sido finalizado. No se pueden registrar
+                  nuevas observaciones.
+                  {!isCreator && " Solo el creador puede acceder al historial."}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Delete Project Section */}
-          {isCreator && (
+          {canDeleteProject(userRole) && (
             <div className="bg-red-50 border border-red-200 rounded-lg">
               <div className="px-6 py-4 border-b border-red-200">
                 <h2 className="text-lg font-semibold text-red-800">

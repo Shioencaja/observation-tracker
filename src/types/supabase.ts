@@ -103,8 +103,11 @@ export type Database = {
       project_observation_options: {
         Row: {
           created_at: string | null
+          depends_on_answer: string | null
+          depends_on_question_id: string | null
           description: string | null
           id: string
+          is_mandatory: boolean | null
           is_visible: boolean | null
           name: string
           options: string[] | null
@@ -116,8 +119,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          depends_on_answer?: string | null
+          depends_on_question_id?: string | null
           description?: string | null
           id?: string
+          is_mandatory?: boolean | null
           is_visible?: boolean | null
           name: string
           options?: string[] | null
@@ -129,8 +135,11 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          depends_on_answer?: string | null
+          depends_on_question_id?: string | null
           description?: string | null
           id?: string
+          is_mandatory?: boolean | null
           is_visible?: boolean | null
           name?: string
           options?: string[] | null
@@ -141,6 +150,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "project_observation_options_depends_on_question_id_fkey"
+            columns: ["depends_on_question_id"]
+            isOneToOne: false
+            referencedRelation: "project_observation_options"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_observation_options_project_id_fkey"
             columns: ["project_id"]
@@ -189,6 +205,7 @@ export type Database = {
           created_by: string
           description: string | null
           id: string
+          is_finished: boolean | null
           name: string
           updated_at: string | null
         }
@@ -198,6 +215,7 @@ export type Database = {
           created_by: string
           description?: string | null
           id?: string
+          is_finished?: boolean | null
           name: string
           updated_at?: string | null
         }
@@ -207,6 +225,7 @@ export type Database = {
           created_by?: string
           description?: string | null
           id?: string
+          is_finished?: boolean | null
           name?: string
           updated_at?: string | null
         }

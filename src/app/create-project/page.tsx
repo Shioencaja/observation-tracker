@@ -15,7 +15,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { ArrowLeft, Plus, X, GripVertical, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  X,
+  GripVertical,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import {
   Select,
   SelectContent,
@@ -24,303 +34,83 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-
-// Draggable Question Component
-interface DraggableQuestionProps {
-  question: {
-    name: string;
-    description: string;
-    question_type: string;
-    options: string[];
-  };
-  index: number;
-  onUpdate: (
-    index: number,
-    field: string,
-    value: string | string[] | boolean
-  ) => void;
-  onRemove: (index: number) => void;
-  onAddOption: (index: number) => void;
-  onUpdateOption: (index: number, optionIndex: number, value: string) => void;
-  onRemoveOption: (index: number, optionIndex: number) => void;
-}
-
-function DraggableQuestion({
-  question,
-  index,
-  onUpdate,
-  onRemove,
-  onAddOption,
-  onUpdateOption,
-  onRemoveOption,
-}: DraggableQuestionProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: `question-${index}` });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`bg-white border border-gray-200 rounded-xl p-6 space-y-6 shadow-sm ${
-        isDragging ? "shadow-lg border-blue-300" : ""
-      }`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div
-            {...attributes}
-            {...listeners}
-            className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-100 rounded"
-          >
-            <GripVertical size={16} className="text-gray-400" />
-          </div>
-          <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-            <span className="text-sm font-semibold text-blue-600">
-              {index + 1}
-            </span>
-          </div>
-          <h4 className="text-lg font-semibold text-gray-900">
-            Pregunta {index + 1}
-          </h4>
-        </div>
-        <Button
-          onClick={() => onRemove(index)}
-          variant="ghost"
-          size="sm"
-          className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-        >
-          <X size={16} />
-        </Button>
-      </div>
-
-      {/* Question Name */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium text-gray-700">
-          Nombre de la Pregunta *
-        </Label>
-        <Input
-          value={question.name}
-          onChange={(e) => onUpdate(index, "name", e.target.value)}
-          placeholder="Ej: ¿Cómo se comporta el usuario?"
-          className="text-base"
-        />
-      </div>
-
-      {/* Question Type */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium text-gray-700">
-          Tipo de Pregunta
-        </Label>
-        <Select
-          value={question.question_type}
-          onValueChange={(value) => onUpdate(index, "question_type", value)}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Seleccionar tipo..." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="string">📝 Texto libre</SelectItem>
-            <SelectItem value="boolean">✅ Sí/No</SelectItem>
-            <SelectItem value="radio">🔘 Opción única</SelectItem>
-            <SelectItem value="checkbox">☑️ Múltiples opciones</SelectItem>
-            <SelectItem value="counter">🔢 Contador</SelectItem>
-            <SelectItem value="timer">⏱️ Temporizador</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Description */}
-      <div className="space-y-2">
-        <Label className="text-sm font-medium text-gray-700">
-          Descripción (opcional)
-        </Label>
-        <Textarea
-          value={question.description}
-          onChange={(e) => onUpdate(index, "description", e.target.value)}
-          placeholder="Descripción adicional de la pregunta..."
-          className="resize-none"
-          rows={3}
-        />
-      </div>
-
-      {/* Options for Radio/Checkbox */}
-      {(question.question_type === "radio" ||
-        question.question_type === "checkbox") && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium text-gray-700">
-              Opciones de Respuesta
-            </Label>
-            <Button
-              onClick={() => onAddOption(index)}
-              variant="outline"
-              size="sm"
-              disabled={question.options.length >= 10}
-              className="text-blue-600 border-blue-200 hover:bg-blue-50"
-            >
-              <Plus size={14} className="mr-1" />
-              Agregar
-            </Button>
-          </div>
-
-          {question.options.length > 0 ? (
-            <div className="space-y-3">
-              {question.options.map((opt, optIndex) => (
-                <div key={optIndex} className="flex items-center gap-3">
-                  <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-medium text-gray-600">
-                      {optIndex + 1}
-                    </span>
-                  </div>
-                  <Input
-                    value={opt}
-                    onChange={(e) =>
-                      onUpdateOption(index, optIndex, e.target.value)
-                    }
-                    placeholder={`Opción ${optIndex + 1}`}
-                    className="flex-1"
-                  />
-                  <Button
-                    onClick={() => onRemoveOption(index, optIndex)}
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors flex-shrink-0"
-                  >
-                    <X size={14} />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-              <p className="text-sm">No hay opciones agregadas</p>
-              <p className="text-xs mt-1">
-                Haz clic en "Agregar" para crear opciones
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+import QuestionCard, { Question } from "@/components/QuestionCard";
+import UserManagement from "@/components/UserManagement";
+import { UserRole } from "@/types/observation";
 
 export default function CreateProjectPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
   const [agencies, setAgencies] = useState<string[]>([]);
   const [newAgency, setNewAgency] = useState("");
-  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<
+    Array<{ user_id: string; role: UserRole }>
+  >([]);
   const [allUsers, setAllUsers] = useState<
     Array<{ user_id: string; email: string }>
   >([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [observationOptions, setObservationOptions] = useState<
-    Array<{
-      name: string;
-      description: string;
-      question_type: string;
-      options: string[];
-    }>
-  >([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [observationOptions, setObservationOptions] = useState<Question[]>([]);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  // Move question up
+  const moveQuestionUp = (index: number) => {
+    if (index > 0) {
+      const newOptions = [...observationOptions];
+      [newOptions[index - 1], newOptions[index]] = [
+        newOptions[index],
+        newOptions[index - 1],
+      ];
+      setObservationOptions(newOptions);
+    }
+  };
 
-  // Handle drag end
-  const handleDragEnd = (event: any) => {
-    const { active, over } = event;
-
-    if (active.id !== over.id) {
-      setObservationOptions((items) => {
-        const oldIndex = items.findIndex(
-          (_, index) => `question-${index}` === active.id
-        );
-        const newIndex = items.findIndex(
-          (_, index) => `question-${index}` === over.id
-        );
-
-        return arrayMove(items, oldIndex, newIndex);
-      });
+  // Move question down
+  const moveQuestionDown = (index: number) => {
+    if (index < observationOptions.length - 1) {
+      const newOptions = [...observationOptions];
+      [newOptions[index], newOptions[index + 1]] = [
+        newOptions[index + 1],
+        newOptions[index],
+      ];
+      setObservationOptions(newOptions);
     }
   };
 
   useEffect(() => {
+    // Don't redirect while auth is still loading
+    if (authLoading) {
+      return;
+    }
+
     if (!user) {
       router.push("/login");
     } else {
       loadAllUsers();
     }
-  }, [user, router]);
+  }, [user, authLoading, router]);
 
   const loadAllUsers = async () => {
     setIsLoadingUsers(true);
     try {
       const { data, error } = await supabase.rpc("get_all_users");
       if (error) {
-        console.log(
-          "Error loading users (get_all_users function might not exist):",
-          error
-        );
         setAllUsers([]);
       } else {
         setAllUsers(data || []);
       }
     } catch (error) {
-      console.log("Error loading users:", error);
       setAllUsers([]);
     } finally {
       setIsLoadingUsers(false);
     }
   };
 
-  const addUserToProject = (userId: string) => {
-    if (!selectedUsers.includes(userId)) {
-      setSelectedUsers([...selectedUsers, userId]);
-    }
-  };
-
-  const removeUserFromProject = (userId: string) => {
-    setSelectedUsers(selectedUsers.filter((id) => id !== userId));
-  };
+  // User management is now handled by the UserManagement component
 
   const addAgency = () => {
     if (newAgency.trim() && !agencies.includes(newAgency.trim())) {
@@ -338,9 +128,11 @@ export default function CreateProjectPage() {
       ...observationOptions,
       {
         name: "",
-        description: "",
         question_type: "string",
         options: [],
+        is_mandatory: false,
+        depends_on_question_id: undefined,
+        depends_on_answer: undefined,
       },
     ]);
   };
@@ -348,7 +140,7 @@ export default function CreateProjectPage() {
   const updateObservationOption = (
     index: number,
     field: string,
-    value: string | string[] | boolean
+    value: string | string[] | boolean | number | undefined | null
   ) => {
     const updated = [...observationOptions];
     updated[index] = { ...updated[index], [field]: value };
@@ -408,13 +200,24 @@ export default function CreateProjectPage() {
       if (projectError) throw projectError;
 
       // Note: The creator is automatically added to project_users by the trigger
+      // But we need to update their role to 'creator'
+      try {
+        await supabase
+          .from("project_users")
+          .update({ role: "creator" })
+          .eq("project_id", project.id)
+          .eq("user_id", user.id);
+      } catch (roleUpdateError) {
+        // Silently fail if role column doesn't exist yet
+      }
 
       // Add selected users to the project
       if (selectedUsers.length > 0) {
-        const usersToInsert = selectedUsers.map((userId) => ({
+        const usersToInsert = selectedUsers.map((userWithRole) => ({
           project_id: project.id,
-          user_id: userId,
+          user_id: userWithRole.user_id,
           added_by: user.id,
+          role: userWithRole.role,
         }));
 
         const { error: selectedUsersError } = await supabase
@@ -431,27 +234,74 @@ export default function CreateProjectPage() {
 
       // Create observation options
       if (observationOptions.length > 0) {
+        // Note: We can't set depends_on_question_id yet because questions don't have IDs
+        // We'll need to insert questions first, then update conditional logic references
         const optionsToInsert = observationOptions
           .filter((option) => option.name.trim())
-          .map((option) => ({
+          .map((option, idx) => ({
             project_id: project.id,
             name: option.name.trim(),
-            description: option.description.trim() || null,
+            description: null,
             question_type: option.question_type,
             options:
-              option.options.length > 0
+              option.options && option.options.length > 0
                 ? option.options.filter((opt) => opt.trim())
                 : null,
             is_visible: true,
+            is_mandatory: option.is_mandatory,
+            order: idx + 1,
           }));
 
         if (optionsToInsert.length > 0) {
-          const { error: optionsError } = await supabase
-            .from("project_observation_options")
-            .insert(optionsToInsert);
+          const { data: insertedQuestions, error: optionsError } =
+            await supabase
+              .from("project_observation_options")
+              .insert(optionsToInsert)
+              .select("id");
 
           if (optionsError) {
             console.error("Error creating observation options:", optionsError);
+            throw new Error(
+              `Error al crear opciones de observación: ${optionsError.message}`
+            );
+          }
+
+          // Now update conditional logic with actual question IDs
+          if (insertedQuestions) {
+            const updates = observationOptions
+              .map((option, i) => {
+                if (!option.depends_on_question_id) return null;
+
+                // depends_on_question_id is stored as a string index from the UI
+                const depIndex = parseInt(option.depends_on_question_id);
+
+                if (
+                  isNaN(depIndex) ||
+                  depIndex < 0 ||
+                  depIndex >= insertedQuestions.length
+                ) {
+                  return null;
+                }
+
+                return {
+                  questionId: insertedQuestions[i].id,
+                  dependsOnId: insertedQuestions[depIndex].id,
+                  answer: option.depends_on_answer,
+                };
+              })
+              .filter(Boolean);
+
+            for (const update of updates) {
+              if (update) {
+                await supabase
+                  .from("project_observation_options")
+                  .update({
+                    depends_on_question_id: update.dependsOnId,
+                    depends_on_answer: update.answer,
+                  })
+                  .eq("id", update.questionId);
+              }
+            }
           }
         }
       }
@@ -470,8 +320,20 @@ export default function CreateProjectPage() {
     }
   };
 
+  // Show loading state while auth is loading
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-gray-400" />
+          <p className="text-gray-500">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
-    return null;
+    return null; // Will redirect to login
   }
 
   return (
@@ -594,93 +456,15 @@ export default function CreateProjectPage() {
                   Agrega usuarios que tendrán acceso a este proyecto
                 </p>
               </div>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-gray-700">
-                    Agregar Usuario
-                  </Label>
-                  <Select
-                    value=""
-                    onValueChange={(userId) => {
-                      if (userId) {
-                        addUserToProject(userId);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccionar usuario..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allUsers
-                        .filter(
-                          (u) =>
-                            u.user_id !== user?.id &&
-                            !selectedUsers.includes(u.user_id)
-                        )
-                        .map((userOption) => (
-                          <SelectItem
-                            key={userOption.user_id}
-                            value={userOption.user_id}
-                          >
-                            {userOption.email}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  {isLoadingUsers && (
-                    <p className="text-sm text-gray-500">
-                      Cargando usuarios...
-                    </p>
-                  )}
-                </div>
-
-                {selectedUsers.length > 0 && (
-                  <div className="space-y-3">
-                    <Label className="text-sm font-medium text-gray-700">
-                      Usuarios Seleccionados ({selectedUsers.length})
-                    </Label>
-                    <div className="space-y-2">
-                      {selectedUsers.map((userId) => {
-                        const userOption = allUsers.find(
-                          (u) => u.user_id === userId
-                        );
-                        return (
-                          <div
-                            key={userId}
-                            className="flex items-center justify-between p-3 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-sm">
-                                <span className="text-sm font-semibold text-white">
-                                  {(userOption?.email || userId)
-                                    .charAt(0)
-                                    .toUpperCase()}
-                                </span>
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium text-gray-900">
-                                  {userOption?.email || userId}
-                                </p>
-                                <p className="text-xs text-gray-500">
-                                  Tendrá acceso al proyecto
-                                </p>
-                              </div>
-                            </div>
-                            <Button
-                              onClick={() => removeUserFromProject(userId)}
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                            >
-                              <X size={16} />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <UserManagement
+                projectId=""
+                projectCreatorId={user?.id || ""}
+                currentUserId={user?.id || ""}
+                currentUserRole="creator"
+                mode="create"
+                selectedUsers={selectedUsers}
+                onUsersChange={setSelectedUsers}
+              />
             </div>
 
             {/* Observation Options */}
@@ -694,31 +478,29 @@ export default function CreateProjectPage() {
                 </p>
               </div>
               <div className="space-y-4">
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={observationOptions.map(
-                      (_, index) => `question-${index}`
-                    )}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {observationOptions.map((option, index) => (
-                      <DraggableQuestion
-                        key={`question-${index}`}
-                        question={option}
-                        index={index}
-                        onUpdate={updateObservationOption}
-                        onRemove={removeObservationOption}
-                        onAddOption={addOptionToQuestion}
-                        onUpdateOption={updateOptionInQuestion}
-                        onRemoveOption={removeOptionFromQuestion}
-                      />
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                <div className="space-y-2">
+                  {observationOptions.map((option, index) => (
+                    <QuestionCard
+                      key={`question-${index}`}
+                      question={option}
+                      index={index}
+                      totalQuestions={observationOptions.length}
+                      allQuestions={observationOptions}
+                      onUpdate={(updates) => {
+                        const updatedOptions = [...observationOptions];
+                        updatedOptions[index] = {
+                          ...updatedOptions[index],
+                          ...updates,
+                        };
+                        setObservationOptions(updatedOptions);
+                      }}
+                      onRemove={() => removeObservationOption(index)}
+                      onMoveUp={() => moveQuestionUp(index)}
+                      onMoveDown={() => moveQuestionDown(index)}
+                      mode="create"
+                    />
+                  ))}
+                </div>
 
                 <Button
                   onClick={addObservationOption}

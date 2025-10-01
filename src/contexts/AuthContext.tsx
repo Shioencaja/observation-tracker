@@ -54,11 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log(
-        "🔄 Auth state change:",
-        event,
-        session?.user?.email || "No user"
-      );
       clearTimeout(timeout);
 
       // Handle specific auth events

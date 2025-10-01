@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaginationWrapper } from "@/components/ui/pagination-wrapper";
 import { Loader2 } from "lucide-react";
 import { usePagination } from "@/hooks/use-pagination";
+import { Badge } from "@/components/ui/badge";
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectWithAccess[]>([]);
@@ -238,11 +239,25 @@ export default function ProjectsPage() {
                         }
                       >
                         <TableCell className="font-medium w-2/5">
-                          <div
-                            className="truncate"
-                            title={projectWithAccess.project.name}
-                          >
-                            {projectWithAccess.project.name}
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                projectWithAccess.project.is_finished
+                                  ? "bg-gray-400"
+                                  : "bg-green-500"
+                              }`}
+                              title={
+                                projectWithAccess.project.is_finished
+                                  ? "Finalizado"
+                                  : "En curso"
+                              }
+                            />
+                            <div
+                              className="truncate"
+                              title={projectWithAccess.project.name}
+                            >
+                              {projectWithAccess.project.name}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell className="w-20">
@@ -337,12 +352,26 @@ export default function ProjectsPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
-                      <h3
-                        className="font-medium text-sm truncate"
-                        title={projectWithAccess.project.name}
-                      >
-                        {projectWithAccess.project.name}
-                      </h3>
+                      <div className="flex items-center gap-2 mb-1">
+                        <div
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            projectWithAccess.project.is_finished
+                              ? "bg-gray-400"
+                              : "bg-green-500"
+                          }`}
+                          title={
+                            projectWithAccess.project.is_finished
+                              ? "Finalizado"
+                              : "En curso"
+                          }
+                        />
+                        <h3
+                          className="font-medium text-sm truncate"
+                          title={projectWithAccess.project.name}
+                        >
+                          {projectWithAccess.project.name}
+                        </h3>
+                      </div>
                       <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />

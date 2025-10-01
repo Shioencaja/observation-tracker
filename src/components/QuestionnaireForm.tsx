@@ -15,6 +15,9 @@ interface Question {
   name: string;
   question_type: string;
   options: string[];
+  is_mandatory?: boolean;
+  depends_on_question_id?: string | null;
+  depends_on_answer?: string | null;
 }
 
 interface QuestionnaireFormProps {
@@ -46,6 +49,7 @@ interface QuestionnaireFormProps {
   // Props for empty state
   onCreateSession?: () => Promise<void>;
   isCreatingSession?: boolean;
+  isProjectFinished?: boolean;
   // Props for question management
   onQuestionUpdated?: (question: Tables<"project_observation_options">) => void;
   onQuestionDeleted?: (questionId: string) => void;
@@ -66,6 +70,7 @@ export default function QuestionnaireForm({
   onFinishSession,
   onCreateSession,
   isCreatingSession = false,
+  isProjectFinished = false,
   onQuestionUpdated,
   onQuestionDeleted,
   onQuestionDuplicated,
@@ -104,13 +109,45 @@ export default function QuestionnaireForm({
       name: option.name,
       question_type: option.question_type,
       options: option.options || [],
+      is_mandatory: option.is_mandatory,
+      depends_on_question_id: option.depends_on_question_id,
+      depends_on_answer: option.depends_on_answer,
     }));
   }, [observationOptions]);
 
   // Use converted questions if no questions prop provided
-  const displayQuestions = useMemo(() => {
+  const allQuestions = useMemo(() => {
     return questions.length > 0 ? questions : convertedQuestions;
   }, [questions, convertedQuestions]);
+
+  // Filter questions based on conditional logic
+  const displayQuestions = useMemo(() => {
+    const filtered = allQuestions.filter((question, index) => {
+      // Always show if no conditional logic
+      if (!question.depends_on_question_id) {
+        return true;
+      }
+
+      // Get the question this depends on by ID
+      const dependencyQuestion = allQuestions.find(
+        (q) => q.id === question.depends_on_question_id
+      );
+
+      if (!dependencyQuestion) {
+        return true; // Show if dependency not found
+      }
+
+      // Get the response for the dependency question
+      const dependencyResponse = responses[dependencyQuestion.id];
+
+      const shouldShow = dependencyResponse === question.depends_on_answer;
+
+      // Check if the response matches the required answer
+      return shouldShow;
+    });
+
+    return filtered;
+  }, [allQuestions, responses]);
 
   // Note: Autosave functionality has been completely disabled
   // Users must manually save their changes using the save button
@@ -122,19 +159,19 @@ export default function QuestionnaireForm({
     setHasChanges(hasActualChanges);
   }, [responses]);
 
-  // Validate all questions are answered (excluding timer, counter, and string)
+  // Validate mandatory questions are answered
   const validateAllQuestions = useCallback(() => {
     const errors: Record<string, string> = {};
 
     displayQuestions.forEach((question) => {
-      // Skip validation for timer, counter, and string questions
-      if (["timer", "counter", "string"].includes(question.question_type)) {
+      // Only validate if question is mandatory
+      if (!question.is_mandatory) {
         return;
       }
 
       const response = responses[question.id];
 
-      // Check if question is required and not answered
+      // Check if mandatory question is not answered
       if (
         !response ||
         (typeof response === "string" && response.trim() === "") ||
@@ -142,7 +179,7 @@ export default function QuestionnaireForm({
         response === null ||
         response === undefined
       ) {
-        errors[question.id] = `${question.name} es requerido`;
+        errors[question.id] = `${question.name} es obligatorio`;
       }
     });
 
@@ -150,11 +187,11 @@ export default function QuestionnaireForm({
     return Object.keys(errors).length === 0;
   }, [responses, displayQuestions]);
 
-  // Check if all required questions are answered (excluding timer, counter, and string)
+  // Check if all mandatory questions are answered
   const areAllQuestionsAnswered = useCallback(() => {
     return displayQuestions.every((question) => {
-      // Skip validation for timer, counter, and string questions
-      if (["timer", "counter", "string"].includes(question.question_type)) {
+      // Skip validation for optional questions
+      if (!question.is_mandatory) {
         return true;
       }
 
@@ -261,7 +298,6 @@ export default function QuestionnaireForm({
     try {
       // Then finish the session
       await onFinishSession();
-      console.log("✅ Session finished successfully");
     } catch (error) {
       console.error("Error finishing session:", error);
     } finally {
@@ -303,7 +339,7 @@ export default function QuestionnaireForm({
   // Load existing observations when session changes
   useEffect(() => {
     const loadExistingObservations = async () => {
-      if (!selectedSessionId || displayQuestions.length === 0) {
+      if (!selectedSessionId || allQuestions.length === 0) {
         setResponses({});
         setIsInitialLoad(true);
         setHasChanges(false);
@@ -365,7 +401,7 @@ export default function QuestionnaireForm({
     };
 
     loadExistingObservations();
-  }, [selectedSessionId, displayQuestions.length]);
+  }, [selectedSessionId, allQuestions.length]);
 
   const handleResponseChange = (questionId: string, value: any) => {
     // Don't allow changes if session is finished
@@ -455,7 +491,8 @@ export default function QuestionnaireForm({
             {isManualSaving && (
               <span className="text-blue-600">💾 Guardando manualmente...</span>
             )}
-            {!hasChanges &&
+            {selectedSessionId &&
+              !hasChanges &&
               !isAutoSaving &&
               !isManualSaving &&
               !isSessionFinished &&
@@ -478,21 +515,17 @@ export default function QuestionnaireForm({
         {!selectedSessionId ? (
           // Empty state - no session selected
           <div className="text-center py-12">
-            <div className="mb-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Selecciona una sesión para comenzar
-              </h3>
-              <p className="text-gray-500 mb-6">
-                Elige una sesión existente de la tabla superior o crea una nueva
-                sesión para empezar a llenar el cuestionario.
-              </p>
-            </div>
             {onCreateSession && (
               <Button
                 onClick={onCreateSession}
-                disabled={isCreatingSession}
+                disabled={isCreatingSession || isProjectFinished}
                 size="lg"
                 className="px-8"
+                title={
+                  isProjectFinished
+                    ? "No se pueden crear sesiones en proyectos finalizados"
+                    : ""
+                }
               >
                 {isCreatingSession ? "Creando sesión..." : "Crear Nueva Sesión"}
               </Button>

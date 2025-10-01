@@ -18,6 +18,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 
 export default function DateSessionsPage() {
   return (
@@ -65,8 +66,9 @@ function DateSessionsPageContent() {
   >(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null);
-  const [sessionsTableOpen, setSessionsTableOpen] = useState(true);
+  const [sessionsTableOpen, setSessionsTableOpen] = useState(false);
   const [isDeletingSession, setIsDeletingSession] = useState(false);
+  const [hasAutoSelected, setHasAutoSelected] = useState(false);
   const [skipNextLoad, setSkipNextLoad] = useState(false);
   const [toasts, setToasts] = useState<
     Array<{
@@ -122,13 +124,8 @@ function DateSessionsPageContent() {
     }
   }, [searchParams]);
 
-  // Update selected session when URL params change (only on initial load)
-  useEffect(() => {
-    const sessionParam = searchParams.get("session");
-    if (sessionParam && !selectedSessionId) {
-      handleSessionSelect(sessionParam);
-    }
-  }, [searchParams]); // Removed selectedSessionId from dependencies to prevent loops
+  // Calculate unfinished sessions count
+  const unfinishedCount = sessions.filter((s) => !s.end_time).length;
 
   // Load project data
   useEffect(() => {
@@ -265,9 +262,28 @@ function DateSessionsPageContent() {
 
         setSessions(sessionsWithObservations);
 
-        // Auto-select the most recent session if none selected
-        if (!selectedSessionId && sessionsData.length > 0) {
-          handleSessionSelect(sessionsData[0].id);
+        // Auto-select logic on first load only
+        if (!hasAutoSelected && sessionsData.length > 0) {
+          setHasAutoSelected(true);
+
+          // Priority 1: URL param
+          const sessionParam = searchParams.get("session");
+          if (sessionParam && sessionsData.find((s) => s.id === sessionParam)) {
+            handleSessionSelect(sessionParam);
+            setSessionsTableOpen(false); // Keep closed if URL param exists
+            return;
+          }
+
+          // Priority 2: Latest unfinished session
+          const unfinishedSession = sessionsData.find((s) => !s.end_time);
+          if (unfinishedSession) {
+            handleSessionSelect(unfinishedSession.id);
+            setSessionsTableOpen(false); // Keep closed, auto-select the session
+            return;
+          }
+
+          // Priority 3: Don't auto-select, keep accordion closed
+          // User can manually open it to select a session
         }
       } else {
         setSessions([]);
@@ -388,6 +404,15 @@ function DateSessionsPageContent() {
   // Create new session
   const createNewSession = async () => {
     if (!user || !project) return;
+
+    // Prevent creating sessions if project is finished (for everyone, including creator)
+    if (project.is_finished === true) {
+      showToast(
+        "Este proyecto ha sido finalizado. No se pueden crear nuevas sesiones.",
+        "error"
+      );
+      return;
+    }
 
     setIsCreatingSession(true);
     try {
@@ -560,7 +585,7 @@ function DateSessionsPageContent() {
             }
             return null;
           })
-          .filter(Boolean);
+          .filter((f): f is string => f !== null);
 
         // Delete voice recordings from storage
         if (voiceRecordings.length > 0) {
@@ -758,6 +783,37 @@ function DateSessionsPageContent() {
     );
   }
 
+  // Check if user has access to view history
+  const canViewHistory = !project.is_finished || user.id === project.created_by;
+
+  // If project is finished and user is not creator, show restricted access message
+  if (project.is_finished && user.id !== project.created_by) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="max-w-md text-center px-6">
+          <div className="mb-6">
+            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">🔒</span>
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              Proyecto Finalizado
+            </h2>
+            <p className="text-gray-600">
+              Este proyecto ha sido finalizado por el creador. Ya no se pueden
+              registrar nuevas observaciones ni acceder al historial.
+            </p>
+          </div>
+          <Button
+            onClick={() => router.push("/projects")}
+            className="bg-gray-900 hover:bg-gray-800 text-white"
+          >
+            Volver a Proyectos
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-4xl mx-auto px-6 py-12">
@@ -774,6 +830,11 @@ function DateSessionsPageContent() {
           </Button>
           <h1 className="text-2xl font-semibold text-gray-900 mb-2">
             {project.name}
+            {project.is_finished && (
+              <span className="ml-3 text-sm font-normal text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
+                ✅ Finalizado
+              </span>
+            )}
           </h1>
           <p className="text-gray-500 text-sm">
             Sesiones del{" "}
@@ -785,6 +846,14 @@ function DateSessionsPageContent() {
             })}
             {selectedAgency && ` • ${selectedAgency}`}
           </p>
+          {project.is_finished && (
+            <div className="mt-4 bg-orange-50 border border-orange-200 rounded-lg px-4 py-3">
+              <p className="text-sm text-orange-800">
+                ⚠️ Este proyecto ha sido finalizado. No se pueden crear nuevas
+                sesiones ni registrar observaciones.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Content */}
@@ -802,6 +871,11 @@ function DateSessionsPageContent() {
                   className="flex items-center gap-2 p-0 h-auto text-lg font-medium text-gray-900 hover:text-gray-700"
                 >
                   <h2>Sesiones</h2>
+                  {unfinishedCount > 0 && (
+                    <span className="ml-2 text-sm font-normal text-orange-600">
+                      ({unfinishedCount} sin finalizar)
+                    </span>
+                  )}
                   {sessionsTableOpen ? (
                     <ChevronUp className="h-4 w-4" />
                   ) : (
@@ -811,8 +885,18 @@ function DateSessionsPageContent() {
               </CollapsibleTrigger>
               <Button
                 onClick={createNewSession}
-                disabled={isCreatingSession}
-                className="bg-gray-900 hover:bg-gray-800 text-white"
+                disabled={isCreatingSession || project.is_finished === true}
+                className={cn(
+                  "bg-gray-900 text-white",
+                  !isCreatingSession &&
+                    project.is_finished !== true &&
+                    "hover:bg-gray-800"
+                )}
+                title={
+                  project.is_finished === true
+                    ? "No se pueden crear sesiones en proyectos finalizados"
+                    : ""
+                }
               >
                 {isCreatingSession ? (
                   <>
@@ -860,6 +944,7 @@ function DateSessionsPageContent() {
                   observationOptions={observationOptions}
                   onCreateSession={createNewSession}
                   isCreatingSession={isCreatingSession}
+                  isProjectFinished={project.is_finished}
                   projectId={projectId}
                 />
               );
