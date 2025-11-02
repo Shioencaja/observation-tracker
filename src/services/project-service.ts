@@ -23,7 +23,7 @@ export interface UpdateProjectData {
 
 export interface ProjectWithAccess {
   project: Project;
-  access_level: "creator" | "editor" | "viewer";
+  access_level: "creator" | "admin" | "editor" | "viewer";
 }
 
 export const projectService = {
@@ -56,6 +56,7 @@ export const projectService = {
         .from("project_users")
         .select(
           `
+          role,
           projects!inner(
             *,
             sessions(count)
@@ -80,7 +81,7 @@ export const projectService = {
         access_level: "creator" as const,
       }));
 
-      // Transform member projects
+      // Transform member projects - use the role from project_users
       const memberProjectsWithAccess: ProjectWithAccess[] = (
         memberProjects || []
       ).map((memberProject: any) => ({
@@ -88,7 +89,7 @@ export const projectService = {
           ...memberProject.projects,
           session_count: memberProject.projects.sessions?.[0]?.count || 0,
         },
-        access_level: "editor" as const, // Default to editor since no role column exists
+        access_level: (memberProject.role || "editor") as "creator" | "admin" | "editor" | "viewer",
       }));
 
       // Combine both arrays and remove duplicates (in case user is both creator and member)
@@ -145,6 +146,7 @@ export const projectService = {
         .from("project_users")
         .select(
           `
+          role,
           projects!inner(
             *,
             sessions(count)
@@ -166,7 +168,7 @@ export const projectService = {
           session_count:
             (memberProject as any).projects.sessions?.[0]?.count || 0,
         },
-        access_level: "editor" as const, // Default to editor since no role column exists
+        access_level: ((memberProject as any).role || "editor") as "creator" | "admin" | "editor" | "viewer",
       };
 
       return { data: projectWithAccess, error: null };
@@ -256,7 +258,7 @@ export const projectService = {
     userId: string
   ): Promise<{
     hasAccess: boolean;
-    accessLevel: "creator" | "editor" | "viewer" | null;
+    accessLevel: "creator" | "admin" | "editor" | "viewer" | null;
     error: any;
   }> {
     try {
@@ -278,7 +280,7 @@ export const projectService = {
       // Then check if user is a member through project_users table
       const { data: memberProject, error: memberError } = await supabase
         .from("project_users")
-        .select("id")
+        .select("role")
         .eq("project_id", projectId)
         .eq("user_id", userId)
         .single();
@@ -290,7 +292,7 @@ export const projectService = {
 
       return {
         hasAccess: true,
-        accessLevel: "editor" as const, // Default to editor since no role column exists
+        accessLevel: ((memberProject as any).role || "editor") as "creator" | "admin" | "editor" | "viewer",
         error: null,
       };
     } catch (error) {
@@ -374,7 +376,7 @@ export const projectService = {
       );
       if (
         !hasAccess ||
-        (accessLevel !== "creator" && accessLevel !== "editor")
+        (accessLevel !== "creator" && accessLevel !== "admin" && accessLevel !== "editor")
       ) {
         return { error: new Error("Insufficient permissions to add users") };
       }
@@ -409,7 +411,7 @@ export const projectService = {
       );
       if (
         !hasAccess ||
-        (accessLevel !== "creator" && accessLevel !== "editor")
+        (accessLevel !== "creator" && accessLevel !== "admin" && accessLevel !== "editor")
       ) {
         return { error: new Error("Insufficient permissions to remove users") };
       }

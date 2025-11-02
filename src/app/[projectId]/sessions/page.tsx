@@ -57,6 +57,7 @@ import {
 import Link from "next/link";
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import { usePagination } from "@/hooks/use-pagination";
+import { useProjectRole } from "@/hooks/use-project-role";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { ToastContainer } from "@/components/ui/toast";
 
@@ -143,6 +144,16 @@ function SessionsContent() {
       type: "success" | "error" | "info" | "warning";
     }>
   >([]);
+
+  // Get user role for the project
+  const { role } = useProjectRole(
+    projectId,
+    user?.id || "",
+    project?.created_by || ""
+  );
+  
+  // Check if user can export (creator or admin)
+  const canExport = role === "creator" || role === "admin";
 
   // Get unique agencies and dates for filters
   const uniqueAgencies = Array.from(
@@ -413,15 +424,143 @@ function SessionsContent() {
     setDeleteDialogOpen(true);
   };
 
-  const handleExportSession = (sessionId: string) => {
-    // Check if user is the project creator
-    if (user?.id !== project?.created_by) {
+  const handleExportSession = async (sessionId: string) => {
+    // Check if user can export (creator or admin)
+    if (!canExport) {
       showToast("No tienes permisos para exportar sesiones", "error");
       return;
     }
 
-    // TODO: Implement export functionality
-    showToast("Función de exportación en desarrollo", "info");
+    // Find the session to export
+    const session = filteredSessions.find((s) => s.id === sessionId);
+    if (!session) {
+      showToast("Sesión no encontrada", "error");
+      return;
+    }
+
+    try {
+      // Get all project observation options with their order
+      const { data: projectOptions, error: projectOptionsError } = await supabase
+        .from("project_observation_options")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (projectOptionsError) {
+        console.error("Error loading project options:", projectOptionsError);
+        showToast("Error al cargar las opciones del proyecto", "error");
+        return;
+      }
+
+      // Get observations for this session
+      const { data: observations, error: obsError } = await supabase
+        .from("observations")
+        .select(
+          `
+          id,
+          session_id,
+          response,
+          created_at,
+          project_observation_options (
+            id,
+            name,
+            question_type
+          )
+        `
+        )
+        .eq("session_id", sessionId)
+        .order("created_at", { ascending: true });
+
+      if (obsError) {
+        console.error("Error loading observations:", obsError);
+        showToast("Error al cargar las observaciones", "error");
+        return;
+      }
+
+      // Create a map of question_id to question info from project options
+      const questionMap = new Map<string, { name: string; question_type: string }>();
+      (projectOptions || []).forEach((opt) => {
+        questionMap.set(opt.id, {
+          name: opt.name || "Unknown Question",
+          question_type: opt.question_type || "unknown",
+        });
+      });
+
+      // Use ordered questions from project options
+      const orderedQuestions = (projectOptions || []).map((opt) => [
+        opt.id,
+        questionMap.get(opt.id)!,
+      ]);
+
+      // Prepare CSV headers: basic session info + question columns
+      const csvHeaders = [
+        "ID de Sesión",
+        "Fecha",
+        "Agencia",
+        ...orderedQuestions.map(([_, q]) => q.name),
+      ];
+
+      // Create a map of question_id to response
+      const sessionResponses = new Map<string, string>();
+      (observations || []).forEach((obs) => {
+        const questionId = (obs.project_observation_options as any)?.id;
+        const questionType = (obs.project_observation_options as any)?.question_type || "unknown";
+        if (questionId) {
+          sessionResponses.set(
+            questionId,
+            String(formatResponseForCSV(obs.response, questionType))
+          );
+        }
+      });
+
+      // Create CSV data with questions as columns
+      const row: string[] = [];
+
+      // Format date in Peru timezone (UTC-5)
+      const sessionDate = new Date(session.start_time);
+      const peruDate = new Date(sessionDate.getTime() - 5 * 60 * 60 * 1000);
+      const formattedDate = peruDate.toLocaleDateString("es-PE", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        timeZone: "America/Lima",
+      });
+
+      // Start with session info
+      row.push(session.id, formattedDate, session.agency || "");
+
+      // Add answers for each question in order
+      orderedQuestions.forEach(([questionId, _]) => {
+        row.push(sessionResponses.get(questionId) || "");
+      });
+
+      // Create CSV content
+      const csvContent = [
+        csvHeaders.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(","),
+        row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(","),
+      ].join("\n");
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute(
+        "download",
+        `sesion-${sessionId.substring(0, 8)}-${new Date().toISOString().split("T")[0]}.csv`
+      );
+      link.style.visibility = "hidden";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast("Sesión exportada exitosamente", "success");
+    } catch (error) {
+      console.error("Error exporting session:", error);
+      showToast("Error al exportar la sesión", "error");
+    }
   };
 
   // Format response for CSV export (show actual values, empty if no response)
@@ -527,8 +666,8 @@ function SessionsContent() {
   // Export all filtered sessions to CSV
   const handleExportAllSessions = async () => {
     try {
-      // Check if user is the project creator
-      if (user?.id !== project?.created_by) {
+      // Check if user can export (creator or admin)
+      if (!canExport) {
         showToast("No tienes permisos para exportar sesiones", "error");
         return;
       }
@@ -544,6 +683,20 @@ function SessionsContent() {
         sessionCount: sessionIds.length,
       });
 
+      // Get all project observation options with their order
+      const { data: projectOptions, error: projectOptionsError } = await supabase
+        .from("project_observation_options")
+        .select("*")
+        .eq("project_id", projectId)
+        .order("order", { ascending: true })
+        .order("created_at", { ascending: true });
+
+      if (projectOptionsError) {
+        console.error("Error loading project options:", projectOptionsError);
+        showToast("Error al cargar las opciones del proyecto", "error");
+        return;
+      }
+
       const { data: allObservations, error: obsError } = await supabase
         .from("observations")
         .select(
@@ -553,6 +706,7 @@ function SessionsContent() {
           response,
           created_at,
           project_observation_options (
+            id,
             name,
             question_type
           )
@@ -601,59 +755,78 @@ function SessionsContent() {
         filteredSessionsCount: filteredSessions.length,
       });
 
-      // Prepare CSV headers for questions as rows format
-      const csvHeaders = ["ID de Sesión", "Fecha", "Pregunta", "Respuesta"];
+      // Create a map of question_id to question info from project options
+      const questionMap = new Map<string, { name: string; question_type: string }>();
+      (projectOptions || []).forEach((opt) => {
+        questionMap.set(opt.id, {
+          name: opt.name || "Unknown Question",
+          question_type: opt.question_type || "unknown"
+        });
+      });
 
-      // Create CSV data with questions as rows
+      // Use ordered questions from project options
+      const orderedQuestions = (projectOptions || []).map(opt => [opt.id, questionMap.get(opt.id)!]);
+
+      // Prepare CSV headers: basic session info + question columns
+      const csvHeaders = ["ID de Sesión", "Fecha", "Agencia", ...orderedQuestions.map(([_, q]) => q.name)];
+
+      // Create a map of session_id to question_id to response
+      const sessionResponses = new Map<string, Map<string, string>>();
+      
+      filteredSessions.forEach((session) => {
+        sessionResponses.set(session.id, new Map());
+      });
+
+      // Populate the response map
+      (allObservations || []).forEach((obs) => {
+        const sessionId = obs.session_id;
+        const questionId = (obs.project_observation_options as any)?.id;
+        const questionType = (obs.project_observation_options as any)?.question_type || "unknown";
+        
+        if (sessionId && questionId) {
+          const sessionMap = sessionResponses.get(sessionId);
+          if (sessionMap) {
+            sessionMap.set(
+              questionId,
+              String(formatResponseForCSV(obs.response, questionType))
+            );
+          }
+        }
+      });
+
+      // Create CSV data with questions as columns
       const csvData: Array<string[]> = [];
 
-      // Create rows for all observations directly
-      (allObservations || []).forEach((obs) => {
-        // Find the session for this observation
-        const session = filteredSessions.find((s) => s.id === obs.session_id);
-        if (session) {
-          // Format date in Peru timezone (UTC-5)
-          const sessionDate = new Date(session.start_time);
-          const peruDate = new Date(sessionDate.getTime() - 5 * 60 * 60 * 1000); // Convert to Peru time
-          const formattedDate = peruDate.toLocaleDateString("es-PE", {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            timeZone: "America/Lima",
-          });
+      filteredSessions.forEach((session) => {
+        // Format date in Peru timezone (UTC-5)
+        const sessionDate = new Date(session.start_time);
+        const peruDate = new Date(sessionDate.getTime() - 5 * 60 * 60 * 1000); // Convert to Peru time
+        const formattedDate = peruDate.toLocaleDateString("es-PE", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          timeZone: "America/Lima",
+        });
 
-          const questionType = (obs.project_observation_options as any)?.question_type || "unknown";
-          const questionName = (obs.project_observation_options as any)?.name || "Unknown Question";
-          
-          // Debug counter questions specifically
-          if (questionType === "counter") {
-            console.log("🔍 Counter question debug:", {
-              sessionId: session.id,
-              questionName,
-              questionType,
-              rawResponse: obs.response,
-              responseType: typeof obs.response,
-              formattedResponse: formatResponseForCSV(obs.response, questionType)
-            });
-          }
+        // Start with session info
+        const row: string[] = [
+          session.id,
+          formattedDate,
+          session.agency || ""
+        ];
 
-          csvData.push([
-            session.id,
-            formattedDate,
-            questionName,
-            String(
-              formatResponseForCSV(
-                obs.response,
-                questionType
-              )
-            ),
-          ]);
-        }
+        // Add answers for each question in order
+        const sessionMap = sessionResponses.get(session.id) || new Map();
+        orderedQuestions.forEach(([questionId, _]) => {
+          row.push(sessionMap.get(questionId) || "");
+        });
+
+        csvData.push(row);
       });
 
       // Create CSV content
       const csvContent = [
-        csvHeaders.join(","),
+        csvHeaders.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(","),
         ...csvData.map((row) =>
           row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(",")
         ),
@@ -1040,8 +1213,8 @@ function SessionsContent() {
                 </PopoverContent>
               </Popover>
 
-              {/* Export Button - Only for project creators */}
-              {user?.id === project?.created_by && (
+              {/* Export Button - Only for project creators and admins */}
+              {canExport && (
                 <Button
                   onClick={handleExportAllSessions}
                   variant="outline"
@@ -1093,8 +1266,8 @@ function SessionsContent() {
                                   ? "⏳"
                                   : "○"}
                               </Badge>
-                              {/* Only show three-dot menu if user is project creator */}
-                              {user?.id === project?.created_by && (
+                              {/* Only show three-dot menu if user is project creator or admin */}
+                              {canExport && (
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button
@@ -1110,7 +1283,7 @@ function SessionsContent() {
                                     align="end"
                                     className="w-48"
                                   >
-                                    {/* Export button - Only for project creators */}
+                                    {/* Export button - Only for project creators and admins */}
                                     <DropdownMenuItem
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -1120,18 +1293,22 @@ function SessionsContent() {
                                       <Download className="mr-2 h-4 w-4" />
                                       Exportar sesión
                                     </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
                                     {/* Delete button - Only for project creators */}
-                                    <DropdownMenuItem
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteSession(session.id);
-                                      }}
-                                      className="text-red-600 focus:text-red-600"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Eliminar sesión
-                                    </DropdownMenuItem>
+                                    {user?.id === project?.created_by && (
+                                      <>
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteSession(session.id);
+                                          }}
+                                          className="text-red-600 focus:text-red-600"
+                                        >
+                                          <Trash2 className="mr-2 h-4 w-4" />
+                                          Eliminar sesión
+                                        </DropdownMenuItem>
+                                      </>
+                                    )}
                                   </DropdownMenuContent>
                                 </DropdownMenu>
                               )}
@@ -1202,8 +1379,8 @@ function SessionsContent() {
                                 </Badge>
                               </TableCell>
                               <TableCell>
-                                {/* Only show three-dot menu if user is project creator */}
-                                {user?.id === project?.created_by ? (
+                                {/* Only show three-dot menu if user is project creator or admin */}
+                                {canExport ? (
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -1219,7 +1396,7 @@ function SessionsContent() {
                                       align="end"
                                       className="w-48"
                                     >
-                                      {/* Export button - Only for project creators */}
+                                      {/* Export button - Only for project creators and admins */}
                                       <DropdownMenuItem
                                         onClick={(e) => {
                                           e.stopPropagation();
@@ -1229,18 +1406,22 @@ function SessionsContent() {
                                         <Download className="mr-2 h-4 w-4" />
                                         Exportar sesión
                                       </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
                                       {/* Delete button - Only for project creators */}
-                                      <DropdownMenuItem
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDeleteSession(session.id);
-                                        }}
-                                        className="text-red-600 focus:text-red-600"
-                                      >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Eliminar sesión
-                                      </DropdownMenuItem>
+                                      {user?.id === project?.created_by && (
+                                        <>
+                                          <DropdownMenuSeparator />
+                                          <DropdownMenuItem
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleDeleteSession(session.id);
+                                            }}
+                                            className="text-red-600 focus:text-red-600"
+                                          >
+                                            <Trash2 className="mr-2 h-4 w-4" />
+                                            Eliminar sesión
+                                          </DropdownMenuItem>
+                                        </>
+                                      )}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 ) : (

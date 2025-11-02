@@ -305,8 +305,8 @@ export default function ProjectsPage() {
                               >
                                 <BarChart3 className="h-4 w-4" />
                               </Button> */}
-                              {user?.id ===
-                                projectWithAccess.project.created_by && (
+                              {(user?.id === projectWithAccess.project.created_by ||
+                                projectWithAccess.access_level === "admin") && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -415,7 +415,8 @@ export default function ProjectsPage() {
                       >
                         <BarChart3 className="h-4 w-4" />
                       </Button> */}
-                      {user?.id === projectWithAccess.project.created_by && (
+                      {(user?.id === projectWithAccess.project.created_by ||
+                        projectWithAccess.access_level === "admin") && (
                         <Button
                           variant="ghost"
                           size="sm"

@@ -155,8 +155,8 @@ export default function QuestionCard({
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
         {/* Header */}
         <div className="flex items-center justify-between p-3 border-b border-gray-100 bg-gray-50/50 rounded-t-lg">
-          <div className="flex items-center space-x-2">
-            <div className="flex flex-col gap-0.5">
+          <div className="flex items-center space-x-2 flex-1 min-w-0">
+            <div className="flex flex-col gap-0.5 flex-shrink-0">
               <Button
                 onClick={onMoveUp}
                 disabled={index === 0}
@@ -178,14 +178,14 @@ export default function QuestionCard({
                 <ChevronDown size={14} />
               </Button>
             </div>
-            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm flex-shrink-0">
               <span className="text-xs font-bold text-white">{index + 1}</span>
             </div>
-            <h4 className="text-sm font-semibold text-gray-900 truncate">
+            <h4 className="text-sm font-semibold text-gray-900 break-words min-w-0 flex-1">
               {question.name}
             </h4>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {canEdit && (
               <Button
                 variant="ghost"
@@ -303,9 +303,9 @@ export default function QuestionCard({
             ? "border-blue-200 bg-blue-50/50"
             : "border-gray-100 bg-gray-50/50"
         }`}
-      >
-        <div className="flex items-center space-x-2">
-          <div className="flex flex-col gap-0.5">
+        >
+        <div className="flex items-center space-x-2 flex-1 min-w-0">
+          <div className="flex flex-col gap-0.5 flex-shrink-0">
             <Button
               onClick={onMoveUp}
               disabled={index === 0}
@@ -335,10 +335,10 @@ export default function QuestionCard({
               <ChevronDown size={14} />
             </Button>
           </div>
-          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+          <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center shadow-sm flex-shrink-0">
             <span className="text-xs font-bold text-white">{index + 1}</span>
           </div>
-          <h4 className="text-sm font-semibold text-gray-900">
+          <h4 className="text-sm font-semibold text-gray-900 break-words min-w-0 flex-1">
             {mode === "edit"
               ? `Editando Pregunta ${index + 1}`
               : `Pregunta ${index + 1}`}

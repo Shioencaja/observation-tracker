@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProjectRole } from "@/hooks/use-project-role";
 import {
   DndContext,
   closestCenter,
@@ -61,6 +62,7 @@ interface DraggableOptionProps {
   index: number;
   onDelete: (id: string) => void;
   onToggleVisibility: (id: string, isVisible: boolean) => void;
+  canEdit?: boolean;
 }
 
 function DraggableOption({
@@ -68,6 +70,7 @@ function DraggableOption({
   index,
   onDelete,
   onToggleVisibility,
+  canEdit = false,
 }: DraggableOptionProps) {
   const {
     attributes,
@@ -109,20 +112,23 @@ function DraggableOption({
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 ${
+      className={`flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 overflow-hidden ${
         isDragging ? "shadow-lg border-blue-300" : ""
       }`}
     >
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <div
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 rounded"
-        >
-          <GripVertical size={16} className="text-gray-400" />
-        </div>
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <span className="font-medium text-gray-900 truncate">
+      <div className="flex items-center gap-3 flex-1 min-w-0 overflow-hidden">
+        {canEdit && (
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing p-1 hover:bg-gray-200 rounded flex-shrink-0"
+          >
+            <GripVertical size={16} className="text-gray-400" />
+          </div>
+        )}
+        {!canEdit && <div className="w-6 flex-shrink-0" />}
+        <div className="flex flex-col gap-1 min-w-0 flex-1 overflow-hidden">
+          <span className="font-medium text-gray-900 break-words">
             {option.name}
           </span>
           <div className="flex items-center gap-2">
@@ -149,14 +155,15 @@ function DraggableOption({
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onToggleVisibility(option.id, !option.is_visible)}
-          className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
-          title={option.is_visible ? "Ocultar opción" : "Mostrar opción"}
-        >
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onToggleVisibility(option.id, !option.is_visible)}
+            className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
+            title={option.is_visible ? "Ocultar opción" : "Mostrar opción"}
+          >
           {option.is_visible ? (
             <svg
               className="w-4 h-4"
@@ -192,28 +199,31 @@ function DraggableOption({
               />
             </svg>
           )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onDelete(option.id)}
-          className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
-          title="Eliminar opción"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+          </Button>
+        )}
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onDelete(option.id)}
+            className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
+            title="Eliminar opción"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-            />
-          </svg>
-        </Button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -241,6 +251,17 @@ function ProjectSettingsPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showSaveReminder, setShowSaveReminder] = useState(false);
+
+  // Get user role for the project
+  const projectId = searchParams.get("project");
+  const { role } = useProjectRole(
+    projectId || "",
+    user?.id || "",
+    project?.created_by || ""
+  );
+  
+  // Check if user can edit (creator or admin)
+  const canEdit = role === "creator" || role === "admin";
 
   // Form state
   const [editName, setEditName] = useState("");
@@ -1041,6 +1062,7 @@ function ProjectSettingsPageContent() {
   }
 
   const isCreator = user.id === project.created_by;
+  const canEditQuestions = canEdit;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-muted/50 to-background">
@@ -1423,7 +1445,7 @@ function ProjectSettingsPageContent() {
           )}
 
           {/* Observation Options Management */}
-          {isCreator && (
+          {canEditQuestions && (
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -1569,7 +1591,7 @@ function ProjectSettingsPageContent() {
                         No hay opciones de observación
                       </p>
                     </div>
-                  ) : (
+                  ) : canEditQuestions ? (
                     <DndContext
                       sensors={sensors}
                       collisionDetection={closestCenter}
@@ -1587,11 +1609,25 @@ function ProjectSettingsPageContent() {
                               index={index}
                               onDelete={handleDeleteOption}
                               onToggleVisibility={handleToggleOptionVisibility}
+                              canEdit={canEditQuestions}
                             />
                           ))}
                         </div>
                       </SortableContext>
                     </DndContext>
+                  ) : (
+                    <div className="space-y-2">
+                      {options.map((option, index) => (
+                        <DraggableOption
+                          key={`option-${option.id}`}
+                          option={option}
+                          index={index}
+                          onDelete={handleDeleteOption}
+                          onToggleVisibility={handleToggleOptionVisibility}
+                          canEdit={canEditQuestions}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
