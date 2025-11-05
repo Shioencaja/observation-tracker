@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,16 +24,126 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
+export interface QuestionOption {
+  id: string;
+  value: string;
+}
+
 export interface Question {
   id?: string;
   name: string;
   question_type: string;
-  options: string[];
+  options: QuestionOption[];
   is_mandatory: boolean;
   is_visible?: boolean;
-  depends_on_question_id?: string | null; // Changed from index to question ID
-  depends_on_answer?: string | null;
+  depends_on_question_id?: string | null; // DEPRECATED: Kept for backward compatibility
+  depends_on_answer?: string | null; // DEPRECATED: Kept for backward compatibility
+  next_question_map?: Record<string, string | null> | null; // Maps answer option value to next question ID
 }
+
+// Helper function to generate deterministic option IDs
+// This ensures IDs are consistent when questions are reloaded
+const generateOptionId = (questionId: string | undefined, optionValue: string, index: number): string => {
+  // If question has an ID, use it for deterministic ID generation
+  if (questionId) {
+    const idBase = `${questionId}_${optionValue}`;
+    return `opt_${idBase.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  }
+  // For new questions without ID yet, use a temporary ID
+  // This will be regenerated when the question is saved
+  return `opt_temp_${index}_${optionValue.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+};
+
+// Helper function to convert string array to option objects (for backward compatibility)
+// Uses the same deterministic ID generation as generateOptionId for consistency
+const normalizeOptions = (options: string[] | QuestionOption[], questionId?: string): QuestionOption[] => {
+  if (options.length === 0) return [];
+  // Check if already in the new format
+  if (typeof options[0] === 'object' && 'id' in options[0] && 'value' in options[0]) {
+    // Parse each option's value if it's a JSON string
+    return (options as QuestionOption[]).map((opt, index) => {
+      let cleanValue = opt.value;
+      
+      // If value is a JSON string, parse it and extract the 'value' property
+      if (typeof opt.value === 'string' && opt.value.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(opt.value);
+          if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+            cleanValue = String(parsed.value);
+          }
+        } catch (e) {
+          // If parsing fails, keep the original value
+          cleanValue = opt.value;
+        }
+      }
+      
+      return {
+        id: opt.id,
+        value: cleanValue,
+      };
+    });
+  }
+  // Convert old string array format to new format with deterministic IDs
+  return (options as string[]).map((value, index) => {
+    // If the value is a JSON string, parse it first
+    let cleanValue = value;
+    if (typeof value === 'string' && value.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(value);
+        if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+          cleanValue = String(parsed.value);
+        }
+      } catch (e) {
+        // If parsing fails, keep the original value
+        cleanValue = value;
+      }
+    }
+    
+    return {
+      id: generateOptionId(questionId, cleanValue, index),
+      value: cleanValue,
+    };
+  });
+};
+
+// Helper function to convert option objects to string array (for backward compatibility with DB)
+export const optionsToStringArray = (options: QuestionOption[]): string[] => {
+  return options.map(opt => opt.value);
+};
+
+// Helper function to convert option objects to JSON for storage (preserves IDs)
+export const optionsToJSON = (options: QuestionOption[]): any => {
+  // Store as JSON array of objects to preserve IDs
+  return JSON.stringify(options);
+};
+
+// Helper function to parse JSON back to option objects
+export const parseOptionsFromJSON = (optionsJson: any): QuestionOption[] => {
+  if (!optionsJson) return [];
+  // If it's already an array of objects with id and value, return it
+  if (Array.isArray(optionsJson) && optionsJson.length > 0) {
+    if (typeof optionsJson[0] === 'object' && 'id' in optionsJson[0] && 'value' in optionsJson[0]) {
+      return optionsJson as QuestionOption[];
+    }
+    // If it's a string array, convert to option objects
+    if (typeof optionsJson[0] === 'string') {
+      return normalizeOptions(optionsJson as string[]);
+    }
+  }
+  // Try to parse as JSON string
+  if (typeof optionsJson === 'string') {
+    try {
+      const parsed = JSON.parse(optionsJson);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object' && 'id' in parsed[0]) {
+        return parsed as QuestionOption[];
+      }
+    } catch (e) {
+      // If parsing fails, treat as string array
+      return normalizeOptions(optionsJson.split(','));
+    }
+  }
+  return [];
+};
 
 interface QuestionCardProps {
   question: Question;
@@ -73,11 +183,71 @@ export default function QuestionCard({
   const [editQuestionType, setEditQuestionType] = useState(
     question.question_type
   );
-  const [editOptions, setEditOptions] = useState(question.options || []);
+  const [editOptions, setEditOptions] = useState<QuestionOption[]>(
+    normalizeOptions(question.options || [], question.id)
+  );
   const [newOption, setNewOption] = useState("");
   const [editIsMandatory, setEditIsMandatory] = useState(
     question.is_mandatory || false
   );
+  // Helper to normalize depends_on_answer - extract ID if it's a JSON string
+  const normalizeDependsOnAnswer = (value: string | null | undefined): string | null => {
+    if (!value) return null;
+    // If it's already a simple string (option ID), return it
+    if (typeof value === 'string' && !value.startsWith('{')) {
+      return value;
+    }
+    // If it's a JSON string, try to parse it
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && parsed.id) {
+        return parsed.id;
+      }
+    } catch (e) {
+      // Not JSON, return as is
+    }
+    return value;
+  };
+
+  // Next question mapping: maps answer option value to next question ID
+  // Clean the map to ensure keys are only string values (not IDs or objects)
+  const cleanNextQuestionMap = useMemo(() => {
+    if (!question.next_question_map) return {};
+    const cleaned: Record<string, string | null> = {};
+    Object.keys(question.next_question_map).forEach(key => {
+      // Only keep keys that are simple strings (option values)
+      // Remove any keys that look like IDs (starting with "opt_") or are too long (likely corrupted)
+      if (typeof key === 'string' && !key.startsWith('opt_') && key.length < 100) {
+        cleaned[key] = question.next_question_map![key];
+      }
+    });
+    return cleaned;
+  }, [question.next_question_map]);
+
+  const [editNextQuestionMap, setEditNextQuestionMap] = useState<
+    Record<string, string | null>
+  >(cleanNextQuestionMap);
+  
+  // Legacy support - keep old fields for backward compatibility
+  const [editDependsOnQuestionId, setEditDependsOnQuestionId] = useState<
+    string | null | undefined
+  >(question.depends_on_question_id);
+  const [editDependsOnAnswer, setEditDependsOnAnswer] = useState<
+    string | null
+  >(normalizeDependsOnAnswer(question.depends_on_answer));
+  
+  // Check if the condition is "is not" (prefixed with "!")
+  const isNotCondition = editDependsOnAnswer?.startsWith("!") || false;
+  const actualAnswerId = isNotCondition ? editDependsOnAnswer.substring(1) : editDependsOnAnswer;
+
+  // Update local state when entering edit mode or when question prop changes
+  useEffect(() => {
+    if (isEditing) {
+      setEditNextQuestionMap(cleanNextQuestionMap);
+      setEditDependsOnQuestionId(question.depends_on_question_id);
+      setEditDependsOnAnswer(normalizeDependsOnAnswer(question.depends_on_answer));
+    }
+  }, [isEditing, cleanNextQuestionMap, question.depends_on_question_id, question.depends_on_answer]);
 
   const getQuestionTypeLabel = (type: string) => {
     switch (type) {
@@ -101,11 +271,61 @@ export default function QuestionCard({
   const handleSave = async () => {
     if (!editName.trim()) return;
 
+    // Ensure next_question_map only contains string values (not IDs or objects)
+    // Rebuild the map using only the ACTUAL option values from editOptions (with accents preserved)
+    const cleanNextQuestionMap: Record<string, string | null> = {};
+    
+    // Use the actual option values from editOptions as keys (these have accents preserved)
+    editOptions.forEach(option => {
+      // Get the actual option value (with accents) - this is what should be stored as the key
+      const optionValue = typeof option.value === 'string' ? option.value : String(option.value);
+      
+      // Check if there's a mapping in editNextQuestionMap for this option value
+      // Try exact match first
+      if (editNextQuestionMap[optionValue] !== undefined) {
+        cleanNextQuestionMap[optionValue] = editNextQuestionMap[optionValue];
+      } else {
+        // If exact match not found, try to find a mapping by matching normalized values
+        // This handles cases where the map might have been created with a slightly different key
+        const normalizedOptionValue = optionValue
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // Remove accents
+          .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+          .trim();
+        
+        const matchingKey = Object.keys(editNextQuestionMap).find(key => {
+          const normalizedKey = key
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "") // Remove accents
+            .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+            .trim();
+          return normalizedKey === normalizedOptionValue;
+        });
+        
+        if (matchingKey) {
+          // Use the actual option value (with accents) as the key, but keep the mapping value
+          cleanNextQuestionMap[optionValue] = editNextQuestionMap[matchingKey];
+        }
+      }
+    });
+
+    console.log("🔍 [QuestionCard] Saving next_question_map:", {
+      original: editNextQuestionMap,
+      cleaned: cleanNextQuestionMap,
+      editOptions: editOptions.map(opt => ({ id: opt.id, value: opt.value }))
+    });
+
     await onUpdate({
       name: editName.trim(),
       question_type: editQuestionType,
       options: editOptions.length > 0 ? editOptions : [],
       is_mandatory: editIsMandatory,
+      next_question_map: Object.keys(cleanNextQuestionMap).length > 0 ? cleanNextQuestionMap : null,
+      // Keep legacy fields for backward compatibility
+      depends_on_question_id: editDependsOnQuestionId || null,
+      depends_on_answer: editDependsOnAnswer || null,
     });
 
     if (mode === "edit") {
@@ -116,14 +336,22 @@ export default function QuestionCard({
   const handleCancel = () => {
     setEditName(question.name);
     setEditQuestionType(question.question_type);
-    setEditOptions(question.options || []);
+    setEditOptions(normalizeOptions(question.options || [], question.id));
     setEditIsMandatory(question.is_mandatory || false);
+    setEditNextQuestionMap(cleanNextQuestionMap);
+    setEditDependsOnQuestionId(question.depends_on_question_id);
+    setEditDependsOnAnswer(normalizeDependsOnAnswer(question.depends_on_answer));
     setIsEditing(false);
   };
 
   const addOption = () => {
-    if (newOption.trim() && !editOptions.includes(newOption.trim())) {
-      const newOptions = [...editOptions, newOption.trim()];
+    const trimmedValue = newOption.trim();
+    if (trimmedValue && !editOptions.some(opt => opt.value === trimmedValue)) {
+      const newOptionObj: QuestionOption = {
+        id: generateOptionId(question.id, trimmedValue, editOptions.length),
+        value: trimmedValue,
+      };
+      const newOptions = [...editOptions, newOptionObj];
       setEditOptions(newOptions);
       setNewOption("");
       if (mode === "create") {
@@ -132,8 +360,8 @@ export default function QuestionCard({
     }
   };
 
-  const removeOption = (optionToRemove: string) => {
-    const newOptions = editOptions.filter((opt) => opt !== optionToRemove);
+  const removeOption = (optionId: string) => {
+    const newOptions = editOptions.filter((opt) => opt.id !== optionId);
     setEditOptions(newOptions);
     if (mode === "create") {
       onUpdate({ options: newOptions });
@@ -142,7 +370,10 @@ export default function QuestionCard({
 
   const updateOption = (optionIndex: number, value: string) => {
     const newOptions = [...editOptions];
-    newOptions[optionIndex] = value;
+    newOptions[optionIndex] = {
+      ...newOptions[optionIndex],
+      value: value,
+    };
     setEditOptions(newOptions);
     if (mode === "create") {
       onUpdate({ options: newOptions });
@@ -259,7 +490,7 @@ export default function QuestionCard({
         </div>
 
         {/* Content */}
-        <div className="p-3">
+        <div className="p-3 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Badge
               variant="outline"
@@ -284,6 +515,45 @@ export default function QuestionCard({
               </Badge>
             )}
           </div>
+
+          {/* Next Question Mapping Display */}
+          {question.next_question_map && Object.keys(question.next_question_map).length > 0 && (
+            <div className="p-2 bg-green-50 rounded-md border border-green-200">
+              <div className="text-xs text-gray-700 mb-1">
+                <span className="font-medium">Pregunta Siguiente:</span>
+              </div>
+              <div className="space-y-1">
+                {Object.entries(question.next_question_map)
+                  .filter(([answerValue, nextQuestionId]) => {
+                    // Skip if the key looks like an ID (corrupted data) or if nextQuestionId is null
+                    return answerValue && !answerValue.startsWith('opt_') && answerValue.length < 100 && nextQuestionId;
+                  })
+                  .map(([answerValue, nextQuestionId]) => {
+                    // Get the actual option value from the question's options to ensure clean display
+                    const questionOptions = normalizeOptions(question.options || [], question.id);
+                    const matchedOption = questionOptions.find(opt => opt.value === answerValue);
+                    const displayValue = matchedOption ? matchedOption.value : answerValue;
+                    
+                    // Only show if we have a valid display value (not an ID or corrupted)
+                    if (!displayValue || displayValue.startsWith('opt_') || displayValue.length > 100) {
+                      return null;
+                    }
+                    
+                    const nextQuestion = allQuestions.find(q => q.id === nextQuestionId);
+                    return (
+                      <div key={answerValue} className="text-xs text-gray-600">
+                        <span className="font-medium">Si: {displayValue}</span>
+                        {" → "}
+                        <span className="font-semibold text-green-700">
+                          {nextQuestion ? nextQuestion.name : "Pregunta desconocida"}
+                        </span>
+                      </div>
+                    );
+                  })
+                  .filter(Boolean)}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -454,19 +724,22 @@ export default function QuestionCard({
             {editOptions.length > 0 ? (
               <div className="space-y-2">
                 {editOptions.map((opt, optIndex) => (
-                  <div key={optIndex} className="flex items-center gap-2">
+                  <div key={opt.id} className="flex items-center gap-2">
                     <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
                       <span className="text-xs font-medium text-gray-600">
                         {optIndex + 1}
                       </span>
                     </div>
                     <Input
-                      value={opt}
+                      value={opt.value}
                       onChange={(e) => {
                         updateOption(optIndex, e.target.value);
                         if (mode === "create") {
                           const newOptions = [...editOptions];
-                          newOptions[optIndex] = e.target.value;
+                          newOptions[optIndex] = {
+                            ...newOptions[optIndex],
+                            value: e.target.value,
+                          };
                           onUpdate({ options: newOptions });
                         }
                       }}
@@ -475,7 +748,7 @@ export default function QuestionCard({
                     />
                     <Button
                       onClick={() => {
-                        removeOption(opt);
+                        removeOption(opt.id);
                         if (mode === "create") {
                           const newOptions = editOptions.filter(
                             (_, i) => i !== optIndex
@@ -523,171 +796,144 @@ export default function QuestionCard({
           </div>
         )}
 
-        {/* Conditional Logic - All Questions Can Be Conditional (except the first one) */}
-        {index > 0 && (
+        {/* Next Question Logic - Set which question to show next based on answer */}
+        {editQuestionType === "radio" && editOptions.length > 0 && (
           <div className="space-y-2 border-t pt-3">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs font-medium text-gray-700">
-                Lógica Condicional
-              </Label>
-              <Button
-                onClick={() => {
-                  // Set to first available radio question
-                  const firstRadio = allQuestions.find(
-                    (q, idx) => idx < index && q.question_type === "radio"
-                  );
-                  const firstRadioIndex = allQuestions.findIndex(
-                    (q, idx) => idx < index && q.question_type === "radio"
-                  );
-
-                  if (firstRadio) {
-                    // Use ID if available (edit mode), otherwise use index as string (create mode)
-                    onUpdate({
-                      depends_on_question_id:
-                        firstRadio.id || firstRadioIndex.toString(),
-                    });
-                  }
-                }}
-                variant="outline"
-                size="sm"
-                className="text-blue-600 border-blue-200 hover:bg-blue-50 h-7 text-xs px-2"
-                disabled={
-                  !allQuestions.some(
-                    (q, idx) => idx < index && q.question_type === "radio"
-                  )
-                }
-              >
-                <Plus size={12} className="mr-1" />
-                Agregar Condición
-              </Button>
-            </div>
-
-            {question.depends_on_question_id ? (
-              <div className="space-y-2 p-3 bg-blue-50 rounded-md border border-blue-200">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs font-medium text-gray-700 whitespace-nowrap">
-                    Mostrar esta pregunta si:
-                  </Label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs text-gray-600 mb-1 block">
-                      Pregunta anterior
-                    </Label>
-                    <Select
-                      value={question.depends_on_question_id || ""}
-                      onValueChange={(value) =>
-                        onUpdate({ depends_on_question_id: value })
+            <Label className="text-xs font-medium text-gray-700">
+              Pregunta Siguiente (basada en respuesta)
+            </Label>
+            <div className="space-y-2">
+              {editOptions
+                .map((option) => {
+                  // Extract the actual string value from the option
+                  // Handle cases where option.value might be a JSON string or the actual value
+                  let optionValue: string = '';
+                  
+                  if (option && typeof option === 'object' && 'value' in option) {
+                    const rawValue = (option as any).value;
+                    
+                    // If it's a JSON string (starts with {), parse it
+                    if (typeof rawValue === 'string' && rawValue.trim().startsWith('{')) {
+                      try {
+                        const parsed = JSON.parse(rawValue);
+                        // Extract the 'value' property from the parsed JSON
+                        if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+                          optionValue = String(parsed.value);
+                        } else {
+                          return null;
+                        }
+                      } catch (e) {
+                        return null;
                       }
-                    >
-                      <SelectTrigger className="h-7 text-sm">
-                        <SelectValue placeholder="Seleccionar pregunta" />
+                    }
+                    // If it's already a simple string (the actual value we want)
+                    else if (typeof rawValue === 'string') {
+                      optionValue = rawValue;
+                    }
+                    // If it's an object with a value property
+                    else if (typeof rawValue === 'object' && rawValue !== null && 'value' in rawValue) {
+                      optionValue = String(rawValue.value);
+                    }
+                    // Fallback
+                    else {
+                      optionValue = String(rawValue);
+                    }
+                  } else {
+                    return null;
+                  }
+                  
+                  // Final validation: skip if it looks like corrupted data (IDs or too long)
+                  if (!optionValue || optionValue.startsWith('opt_') || optionValue.length > 100) {
+                    return null;
+                  }
+                  
+                  // Always use the actual option.value (with accents preserved) as the key
+                  // This ensures we're using the readable format, not sanitized IDs
+                  const actualOptionValue = option.value; // Use the actual value with accents
+                  
+                  // Try to find existing mapping by exact match first, then by normalized match
+                  let currentNextQuestionId = editNextQuestionMap[actualOptionValue] || null;
+                  
+                  // If not found by exact match, try normalized matching (for backward compatibility)
+                  if (!currentNextQuestionId) {
+                    const normalizedActualValue = actualOptionValue
+                      .toLowerCase()
+                      .normalize("NFD")
+                      .replace(/[\u0300-\u036f]/g, "") // Remove accents
+                      .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+                      .trim();
+                    
+                    const matchingKey = Object.keys(editNextQuestionMap).find(key => {
+                      const normalizedKey = key
+                        .toLowerCase()
+                        .normalize("NFD")
+                        .replace(/[\u0300-\u036f]/g, "") // Remove accents
+                        .replace(/[^a-z0-9\s]/g, "") // Remove special chars
+                        .trim();
+                      return normalizedKey === normalizedActualValue;
+                    });
+                    
+                    if (matchingKey) {
+                      currentNextQuestionId = editNextQuestionMap[matchingKey];
+                      // Migrate to use the actual value as key (with accents)
+                      const newMap = { ...editNextQuestionMap };
+                      delete newMap[matchingKey];
+                      newMap[actualOptionValue] = currentNextQuestionId;
+                      setEditNextQuestionMap(newMap);
+                    }
+                  }
+                  
+                  const availableNextQuestions = allQuestions.filter(
+                    (q, qIndex) => qIndex > index && q.id !== question.id
+                  );
+
+                  return (
+                    <div key={option.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded border border-gray-200">
+                      <span className="text-xs text-gray-700 font-medium min-w-[100px] flex-shrink-0">
+                        Si: {actualOptionValue}
+                      </span>
+                      <span className="text-xs text-gray-500">→</span>
+                      <Select
+                        value={currentNextQuestionId || "__default__"}
+                        onValueChange={(value) => {
+                          // Always use the actual option value (with accents) as the key
+                          const newMap = {
+                            ...editNextQuestionMap,
+                            [actualOptionValue]: value === "__default__" ? null : value,
+                          };
+                          console.log("🔍 [QuestionCard] Updating next_question_map:", {
+                            actualOptionValue,
+                            optionId: option.id,
+                            optionObject: option,
+                            newMap
+                          });
+                          setEditNextQuestionMap(newMap);
+                        }}
+                      >
+                      <SelectTrigger className="h-7 text-sm flex-1">
+                        <SelectValue placeholder="Siguiente pregunta (por defecto sigue orden)" />
                       </SelectTrigger>
                       <SelectContent>
-                        {allQuestions
-                          .filter(
-                            (q, qIndex) =>
-                              qIndex < index && q.question_type === "radio"
-                          )
-                          .map((q, qIndex) => {
-                            // Use ID if available (edit mode), otherwise use index (create mode)
-                            const value = q.id || qIndex.toString();
-                            return (
-                              <SelectItem key={value} value={value}>
-                                {q.name || `Pregunta ${qIndex + 1}`}
-                              </SelectItem>
-                            );
-                          })}
-                        {allQuestions.filter(
-                          (q, qIndex) =>
-                            qIndex < index && q.question_type === "radio"
-                        ).length === 0 && (
+                        <SelectItem value="__default__">Seguir orden (por defecto)</SelectItem>
+                        {availableNextQuestions.map((q) => (
+                          <SelectItem key={q.id || `q-${allQuestions.indexOf(q)}`} value={q.id || `q-${allQuestions.indexOf(q)}`}>
+                            {q.name || `Pregunta ${allQuestions.indexOf(q) + 1}`}
+                          </SelectItem>
+                        ))}
+                        {availableNextQuestions.length === 0 && (
                           <div className="px-2 py-1.5 text-xs text-gray-500">
-                            No hay preguntas de opción única anteriores
+                            No hay preguntas siguientes disponibles
                           </div>
                         )}
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div>
-                    <Label className="text-xs text-gray-600 mb-1 block">
-                      Respuesta específica
-                    </Label>
-                    {question.depends_on_question_id ? (
-                      (() => {
-                        const selectedQuestion = allQuestions.find(
-                          (q) => q.id === question.depends_on_question_id
-                        );
-
-                        // Only radio questions are supported for conditional logic
-                        if (
-                          selectedQuestion?.question_type === "radio" &&
-                          selectedQuestion?.options?.length > 0
-                        ) {
-                          return (
-                            <Select
-                              value={question.depends_on_answer || ""}
-                              onValueChange={(value) =>
-                                onUpdate({ depends_on_answer: value })
-                              }
-                            >
-                              <SelectTrigger className="h-7 text-sm">
-                                <SelectValue placeholder="Seleccionar respuesta" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {selectedQuestion.options.map(
-                                  (option, optIndex) => (
-                                    <SelectItem key={optIndex} value={option}>
-                                      {option}
-                                    </SelectItem>
-                                  )
-                                )}
-                              </SelectContent>
-                            </Select>
-                          );
-                        }
-
-                        return (
-                          <div className="h-7 px-3 py-1 text-xs text-gray-500 bg-gray-50 rounded border border-gray-200 flex items-center">
-                            La pregunta seleccionada no tiene opciones
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <div className="h-7 px-3 py-1 text-xs text-gray-500 bg-gray-50 rounded border border-gray-200 flex items-center">
-                        Selecciona una pregunta anterior primero
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() =>
-                      onUpdate({
-                        depends_on_question_id: null,
-                        depends_on_answer: null,
-                      })
-                    }
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    <X size={12} className="mr-1" />
-                    Remover Condición
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-2 text-gray-500 bg-gray-50 rounded-md border-2 border-dashed border-gray-200">
-                <p className="text-xs">Esta pregunta se mostrará siempre</p>
-                <p className="text-xs mt-1">
-                  Haz clic en "Agregar Condición" para hacerla condicional
-                </p>
-              </div>
-            )}
+                );
+              })}
+            </div>
+            <p className="text-xs text-gray-500 italic">
+              Configura qué pregunta mostrar después basándose en la respuesta seleccionada.
+            </p>
           </div>
         )}
       </div>

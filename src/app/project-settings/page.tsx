@@ -63,6 +63,7 @@ interface DraggableOptionProps {
   onDelete: (id: string) => void;
   onToggleVisibility: (id: string, isVisible: boolean) => void;
   canEdit?: boolean;
+  allQuestions?: ProjectObservationOption[]; // Add this to look up dependency questions
 }
 
 function DraggableOption({
@@ -71,6 +72,7 @@ function DraggableOption({
   onDelete,
   onToggleVisibility,
   canEdit = false,
+  allQuestions = [],
 }: DraggableOptionProps) {
   const {
     attributes,
@@ -131,7 +133,7 @@ function DraggableOption({
           <span className="font-medium text-gray-900 break-words">
             {option.name}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge
               variant="outline"
               className="text-xs px-2 py-1 bg-blue-50 text-blue-700 border-blue-200"
@@ -147,12 +149,96 @@ function DraggableOption({
             >
               {option.is_visible ? "Visible" : "Oculta"}
             </Badge>
+            {/* Conditional Dependency Display */}
+            {option.depends_on_question_id && (
+              <Badge
+                variant="outline"
+                className="text-xs px-2 py-1 bg-purple-50 text-purple-700 border-purple-200"
+              >
+                Condicional
+              </Badge>
+            )}
             {option.description && (
               <span className="text-xs text-gray-500 truncate max-w-32">
                 {option.description}
               </span>
             )}
           </div>
+          {/* Conditional Dependency Details */}
+          {option.depends_on_question_id && (
+            <div className="mt-1 text-xs text-gray-600">
+              <span className="font-medium">Mostrar si:</span>{" "}
+              {(() => {
+                // Find the dependency question name from the allQuestions array
+                const dependencyQuestion = allQuestions.find(
+                  (q) => q.id === option.depends_on_question_id
+                );
+                const dependencyName = dependencyQuestion?.name || option.depends_on_question_id;
+                
+                if (!option.depends_on_answer) {
+                  return dependencyName;
+                }
+                
+                // Find the option value from the dependency question
+                if (dependencyQuestion && dependencyQuestion.options) {
+                  // Check if options is array of objects or strings
+                  const dependencyOptions = Array.isArray(dependencyQuestion.options) 
+                    ? dependencyQuestion.options 
+                    : [];
+                  
+                  // Try to find option by ID first, then by value
+                  let matchedOption = null;
+                  if (dependencyOptions.length > 0 && typeof dependencyOptions[0] === 'object' && 'id' in dependencyOptions[0]) {
+                    // Options are objects with id and value
+                    matchedOption = dependencyOptions.find(
+                      (opt: any) => opt.id === option.depends_on_answer
+                    );
+                  } else {
+                    // Options are strings, but depends_on_answer is now an ID
+                    // Generate deterministic IDs to match (same logic as QuestionCard)
+                    matchedOption = dependencyOptions.find((opt: any, index: number) => {
+                      if (typeof opt === 'string') {
+                        // Generate deterministic ID based on question ID and option value
+                        const idBase = dependencyQuestion.id ? `${dependencyQuestion.id}_${opt}` : `opt_${index}_${opt}`;
+                        const generatedId = `opt_${idBase.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+                        return generatedId === option.depends_on_answer;
+                      }
+                      return false;
+                    });
+                    
+                    // If not found by ID, try matching by value (backward compatibility)
+                    if (!matchedOption) {
+                      matchedOption = dependencyOptions.find((opt: any) => opt === option.depends_on_answer);
+                    }
+                  }
+                  
+                  const optionValue = matchedOption 
+                    ? (typeof matchedOption === 'object' ? matchedOption.value : matchedOption)
+                    : option.depends_on_answer;
+                  
+                  return (
+                    <>
+                      <span className="font-semibold">{dependencyName}</span>
+                      {" es "}
+                      <span className="font-semibold">{optionValue}</span>
+                    </>
+                  );
+                }
+                
+                return (
+                  <>
+                    <span className="font-semibold">{dependencyName}</span>
+                    {option.depends_on_answer && (
+                      <>
+                        {" es "}
+                        <span className="font-semibold">{option.depends_on_answer}</span>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
@@ -1610,6 +1696,7 @@ function ProjectSettingsPageContent() {
                               onDelete={handleDeleteOption}
                               onToggleVisibility={handleToggleOptionVisibility}
                               canEdit={canEditQuestions}
+                              allQuestions={options}
                             />
                           ))}
                         </div>

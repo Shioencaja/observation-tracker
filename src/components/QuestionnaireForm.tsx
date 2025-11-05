@@ -9,16 +9,14 @@ import { observationService } from "@/services/observation-service";
 import { questionService } from "@/services/question-service";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import {
+  calculateDisplayQuestions,
+  normalizeQuestionOptions,
+  type Question as QuestionType,
+} from "@/lib/question-filter-utils";
 
-interface Question {
-  id: string;
-  name: string;
-  question_type: string;
-  options: string[];
-  is_mandatory?: boolean;
-  depends_on_question_id?: string | null;
-  depends_on_answer?: string | null;
-}
+// Question type is imported from question-filter-utils
+type Question = QuestionType;
 
 interface QuestionnaireFormProps {
   questions?: Question[];
@@ -58,6 +56,8 @@ interface QuestionnaireFormProps {
   ) => void;
   canManageQuestions?: boolean;
 }
+
+// Question type is now imported from question-filter-utils
 
 export default function QuestionnaireForm({
   questions = [],
@@ -104,15 +104,18 @@ export default function QuestionnaireForm({
 
   // Convert observation options to questions format
   const convertedQuestions = useMemo(() => {
-    return observationOptions.map((option) => ({
-      id: option.id,
-      name: option.name,
-      question_type: option.question_type,
-      options: option.options || [],
-      is_mandatory: option.is_mandatory,
-      depends_on_question_id: option.depends_on_question_id,
-      depends_on_answer: option.depends_on_answer,
-    }));
+    return observationOptions.map(
+      (option): Question => ({
+        id: option.id,
+        name: option.name,
+        question_type: option.question_type,
+        options: option.options || [],
+        is_mandatory: option.is_mandatory || false,
+        depends_on_question_id: option.depends_on_question_id,
+        depends_on_answer: option.depends_on_answer,
+        next_question_map: (option as any).next_question_map || null,
+      })
+    );
   }, [observationOptions]);
 
   // Use converted questions if no questions prop provided
@@ -120,34 +123,17 @@ export default function QuestionnaireForm({
     return questions.length > 0 ? questions : convertedQuestions;
   }, [questions, convertedQuestions]);
 
-  // Filter questions based on conditional logic
-  const displayQuestions = useMemo(() => {
-    const filtered = allQuestions.filter((question, index) => {
-      // Always show if no conditional logic
-      if (!question.depends_on_question_id) {
-        return true;
-      }
+  // Wrap normalizeQuestionOptions in useCallback for stable reference
+  const normalizeQuestionOptionsFn = useCallback(normalizeQuestionOptions, []);
 
-      // Get the question this depends on by ID
-      const dependencyQuestion = allQuestions.find(
-        (q) => q.id === question.depends_on_question_id
-      );
-
-      if (!dependencyQuestion) {
-        return true; // Show if dependency not found
-      }
-
-      // Get the response for the dependency question
-      const dependencyResponse = responses[dependencyQuestion.id];
-
-      const shouldShow = dependencyResponse === question.depends_on_answer;
-
-      // Check if the response matches the required answer
-      return shouldShow;
-    });
-
-    return filtered;
-  }, [allQuestions, responses]);
+  // Calculate which questions to show based on next_question_map logic
+  const displayQuestions = useMemo((): Question[] => {
+    return calculateDisplayQuestions(
+      allQuestions,
+      responses,
+      normalizeQuestionOptionsFn
+    );
+  }, [allQuestions, responses, normalizeQuestionOptionsFn]);
 
   // Note: Autosave functionality has been completely disabled
   // Users must manually save their changes using the save button
@@ -225,8 +211,43 @@ export default function QuestionnaireForm({
 
       for (const [questionId, response] of Object.entries(responses)) {
         if (response !== null && response !== undefined && response !== "") {
+          // Convert response IDs to actual option values (with accents preserved)
+          let responseToSave = response;
+
+          // Find the question to get its options
+          const question = allQuestions.find((q) => q.id === questionId);
+          if (question) {
+            const questionOptions = normalizeQuestionOptionsFn(
+              question.options || [],
+              question.id
+            );
+
+            // Convert response from ID to value
+            if (typeof response === "string") {
+              // Try to find the option by ID
+              const optionMatch = questionOptions.find(
+                (opt) => opt.id === response
+              );
+              if (optionMatch) {
+                // Use the actual option value (with accents)
+                responseToSave = optionMatch.value;
+              }
+              // If not found, assume it's already a value (backward compatibility)
+            } else if (Array.isArray(response)) {
+              // For checkbox/multiple choice, convert each ID to value
+              responseToSave = response.map((resp) => {
+                const optionMatch = questionOptions.find(
+                  (opt) => opt.id === resp
+                );
+                return optionMatch ? optionMatch.value : resp;
+              });
+            }
+          }
+
           const responseString =
-            typeof response === "string" ? response : JSON.stringify(response);
+            typeof responseToSave === "string"
+              ? responseToSave
+              : JSON.stringify(responseToSave);
 
           const { data, error } = await observationService.upsertObservation({
             session_id: selectedSessionId,
@@ -377,9 +398,13 @@ export default function QuestionnaireForm({
           } else {
             try {
               // Try to parse JSON response, fallback to string
-              const response = obs.response
+              let response = obs.response
                 ? JSON.parse(obs.response)
                 : obs.response;
+
+              // If response is stored as a value (new format), keep it as-is
+              // If response is stored as an ID (old format), we'll convert it when needed
+              // For now, keep it as-is so the UI components can work with IDs
               existingResponses[obs.project_observation_option_id] = response;
             } catch {
               // If not JSON, use as string
@@ -425,7 +450,7 @@ export default function QuestionnaireForm({
 
     try {
       return (
-        <div key={question.id} className={hasError ? "space-y-1" : ""}>
+        <div className={hasError ? "space-y-1" : ""}>
           <QuestionRenderer
             question={question}
             value={responses[question.id]}
@@ -539,9 +564,11 @@ export default function QuestionnaireForm({
           </div>
         ) : (
           <div className="space-y-6">
-            {(() => {
-              return displayQuestions.map(renderQuestion);
-            })()}
+            {displayQuestions.map((question) => {
+              const questionWithMap = question as Question;
+              // Ensure each question has a unique key for proper React re-rendering
+              return <div key={question.id}>{renderQuestion(question)}</div>;
+            })}
 
             {!isSessionFinished && (
               <div className="flex flex-col items-center gap-4">

@@ -19,6 +19,59 @@ interface SelectQuestionProps {
   required?: boolean;
 }
 
+// Helper to extract display value from option (handles JSON strings and objects)
+const extractOptionValue = (option: string | any): string => {
+  // If it's already a simple string, use it
+  if (typeof option === 'string' && !option.trim().startsWith('{')) {
+    return option;
+  }
+  
+  // If it's a JSON string, parse it
+  if (typeof option === 'string' && option.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(option);
+      if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+        return String(parsed.value);
+      }
+    } catch (e) {
+      // If parsing fails, return as is
+      return option;
+    }
+  }
+  
+  // If it's an object with a value property
+  if (typeof option === 'object' && option !== null && 'value' in option) {
+    return String(option.value);
+  }
+  
+  // Fallback
+  return String(option);
+};
+
+// Helper to extract option ID (for select value attribute)
+const extractOptionId = (option: string | any): string => {
+  // If it's a JSON string, parse it to get the ID
+  if (typeof option === 'string' && option.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(option);
+      if (parsed && typeof parsed === 'object' && 'id' in parsed) {
+        return String(parsed.id);
+      }
+    } catch (e) {
+      // If parsing fails, use the value
+      return extractOptionValue(option);
+    }
+  }
+  
+  // If it's an object with an id property
+  if (typeof option === 'object' && option !== null && 'id' in option) {
+    return String(option.id);
+  }
+  
+  // Fallback: use the value as the ID
+  return extractOptionValue(option);
+};
+
 export default function SelectQuestion({
   id,
   name,
@@ -39,11 +92,16 @@ export default function SelectQuestion({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
-          {options.map((option, index) => (
-            <SelectItem key={index} value={option}>
-              {option}
-            </SelectItem>
-          ))}
+          {options.map((option, index) => {
+            const displayValue = extractOptionValue(option);
+            const optionId = extractOptionId(option);
+            
+            return (
+              <SelectItem key={index} value={optionId}>
+                {displayValue}
+              </SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
     </div>
