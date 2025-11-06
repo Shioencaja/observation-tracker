@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, Eye, EyeOff } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Eye, EyeOff } from "lucide-react";
+import { LoadingButton } from "@/components/loading/LoadingButton";
+import { FullPageLoading } from "@/components/LoadingSpinner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import Image from "next/image";
+import { OptimizedImage } from "@/components/OptimizedImage";
 
 export default function LoginPage() {
   const { user, loading, signIn } = useAuth();
@@ -48,14 +49,7 @@ export default function LoginPage() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Cargando...</p>
-        </div>
-      </div>
-    );
+    return <FullPageLoading text="Cargando..." />;
   }
 
   if (user) {
@@ -66,11 +60,13 @@ export default function LoginPage() {
     <div className="min-h-screen bg-white flex flex-col">
       {/* Logo in top left corner */}
       <div className="absolute top-6 left-6">
-        <Image
+        <OptimizedImage
           src="/lg_container_light.svg"
           alt="Logo"
           width={120}
           height={49}
+          priority
+          sizes="(max-width: 768px) 120px, 120px"
           className="h-12 w-auto"
         />
       </div>
@@ -139,21 +135,15 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <Button
+            <LoadingButton
               type="submit"
               className="w-full bg-gray-900 hover:bg-gray-800 text-white"
-              disabled={isLoading}
+              isLoading={isLoading}
+              loadingText="Iniciando sesión..."
               size="lg"
             >
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Iniciando sesión...
-                </>
-              ) : (
-                "Iniciar Sesión"
-              )}
-            </Button>
+              Iniciar Sesión
+            </LoadingButton>
             </form>
           </div>
         </div>

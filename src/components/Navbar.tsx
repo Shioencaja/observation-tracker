@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
+import { OptimizedImage } from "@/components/OptimizedImage";
 import { User, LogOut, ChevronDown } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -49,11 +49,13 @@ export default function Navbar() {
               className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
               title="Ir al inicio"
             >
-              <Image
+              <OptimizedImage
                 src="/lg_container_light.svg"
                 alt="Observaciones BCP"
                 width={120}
                 height={49}
+                priority
+                sizes="(max-width: 768px) 120px, 120px"
                 className="h-8 w-auto"
               />
             </button>

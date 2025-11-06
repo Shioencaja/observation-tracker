@@ -12,6 +12,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Loader2 } from "lucide-react";
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 
 interface Session {
   id: string;
@@ -36,6 +38,7 @@ function SessionDetailsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
+  const { toasts, handleError, showWarning, removeToast } = useToastManager();
 
   const sessionId = params.sessionId as string;
   const projectId = searchParams.get("project");
@@ -393,7 +396,7 @@ function SessionDetailsContent() {
   // Export session answers to CSV
   const exportSessionAnswers = async () => {
     if (!currentSession || !observations.length) {
-      alert("No hay datos de sesión o respuestas disponibles para exportar");
+      showWarning("No hay datos de sesión o respuestas disponibles para exportar");
       return;
     }
 
@@ -458,11 +461,7 @@ function SessionDetailsContent() {
       link.click();
       document.body.removeChild(link);
     } catch (error) {
-      console.error("Export error:", error);
-      alert(
-        "Error during export: " +
-          (error instanceof Error ? error.message : "Unknown error")
-      );
+      handleError(error, "Error al exportar la sesión");
     }
   };
 
@@ -660,6 +659,7 @@ function SessionDetailsContent() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </ErrorBoundary>
   );
 }

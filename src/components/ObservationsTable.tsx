@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Pencil, Check, X, Plus, Trash2, ChevronDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { Observation } from "@/types/observation";
@@ -42,18 +42,38 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
+/**
+ * Props for the ObservationsTable component
+ */
 interface ObservationsTableProps {
+  /** Array of observations to display */
   observations: Observation[];
+  /** ID of the session these observations belong to */
   sessionId: string;
+  /** ID of the project these observations belong to */
   projectId: string;
+  /** Callback function called when observations are updated */
   onUpdate: () => void;
+  /** Whether the user can add new observations */
   canAddObservations: boolean;
+  /** Callback function to add a new observation */
   onAddObservation: () => void;
+  /** ID of the newly created observation (for highlighting) */
   newlyCreatedObservationId?: string | null;
+  /** Callback to clear the newly created observation ID */
   onClearNewlyCreatedObservationId: () => void;
+  /** Array of observation options available for this project */
   observationOptions: Tables<"project_observation_options">[];
 }
 
+/**
+ * ObservationsTable Component
+ * Displays a table of observations with inline editing capabilities
+ * Supports multiple question types: text, checkbox, select
+ * 
+ * @param props - Component props
+ * @returns {JSX.Element} The observations table component
+ */
 export default function ObservationsTable({
   observations,
   sessionId,
@@ -68,8 +88,15 @@ export default function ObservationsTable({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  // Use the observationOptions passed from parent
-  const options = observationOptions;
+  
+  // Memoize options map for faster lookups (O(1) instead of O(n))
+  const optionsMap = useMemo(() => {
+    const map = new Map<string, Tables<"project_observation_options">>();
+    observationOptions.forEach((opt) => {
+      map.set(opt.id, opt);
+    });
+    return map;
+  }, [observationOptions]);
 
   // Pagination for observations
   const {
@@ -176,9 +203,10 @@ export default function ObservationsTable({
     }
   };
 
+  // Optimized option name lookup using Map for O(1) performance
   const getOptionName = (optionId: string | null) => {
     if (!optionId) return null;
-    const option = options.find((opt) => opt.id === optionId);
+    const option = optionsMap.get(optionId);
     return option?.name || "Unknown Option";
   };
 
@@ -412,6 +440,8 @@ export default function ObservationsTable({
                               onClick={handleSave}
                               disabled={isLoading}
                               className="bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm"
+                              aria-label="Guardar cambios"
+                              title="Guardar cambios"
                             >
                               <Check size={14} className="sm:mr-1" />
                               <span className="hidden sm:inline">Guardar</span>
@@ -422,6 +452,8 @@ export default function ObservationsTable({
                               onClick={handleCancel}
                               disabled={isLoading}
                               className="text-xs sm:text-sm"
+                              aria-label="Cancelar edición"
+                              title="Cancelar edición"
                             >
                               <X size={14} className="sm:mr-1" />
                               <span className="hidden sm:inline">Cancelar</span>
@@ -434,6 +466,8 @@ export default function ObservationsTable({
                               variant="ghost"
                               onClick={() => handleEdit(observation)}
                               className="hover:bg-blue-50 hover:text-blue-600 p-1"
+                              aria-label={`Editar observación ${index + 1}`}
+                              title="Editar observación"
                             >
                               <Pencil size={14} />
                             </Button>
@@ -443,6 +477,8 @@ export default function ObservationsTable({
                                   size="sm"
                                   variant="ghost"
                                   className="text-red-500 hover:text-red-600 hover:bg-red-50 p-1"
+                                  aria-label={`Eliminar observación ${index + 1}`}
+                                  title="Eliminar observación"
                                 >
                                   <Trash2 size={14} />
                                 </Button>

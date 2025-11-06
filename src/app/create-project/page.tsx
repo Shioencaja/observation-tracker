@@ -37,10 +37,13 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import QuestionCard, { Question } from "@/components/QuestionCard";
 import UserManagement from "@/components/UserManagement";
 import { UserRole } from "@/types/observation";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 
 export default function CreateProjectPage() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
+  const { toasts, handleError, showSuccess, removeToast } = useToastManager();
 
   const [projectName, setProjectName] = useState("");
   const [projectDescription, setProjectDescription] = useState("");
@@ -307,14 +310,10 @@ export default function CreateProjectPage() {
       }
 
       // Redirect to projects page
+      showSuccess("Proyecto creado exitosamente");
       router.push("/projects");
     } catch (error) {
-      console.error("Error creating project:", error);
-      alert(
-        `Error al crear proyecto: ${
-          error instanceof Error ? error.message : "Error desconocido"
-        }`
-      );
+      handleError(error, "Error al crear el proyecto");
     } finally {
       setIsCreating(false);
     }
@@ -536,6 +535,7 @@ export default function CreateProjectPage() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </ErrorBoundary>
   );
 }

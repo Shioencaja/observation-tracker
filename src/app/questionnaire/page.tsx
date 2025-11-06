@@ -17,12 +17,15 @@ import {
 } from "@/components/ui/select";
 import { ArrowLeft, Calendar, Users, Loader2 } from "lucide-react";
 import { Project } from "@/types/observation";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 
 function QuestionnaireContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project");
+  const { toasts, handleError, showSuccess, removeToast } = useToastManager();
 
   const [project, setProject] = useState<Project | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,16 +108,15 @@ function QuestionnaireContent() {
         .single();
 
       if (error) {
-        console.error("Error creating session:", error);
-        alert("Error al crear la sesión");
+        handleError(error, "Error al crear la sesión");
         return;
       }
 
       // Redirect to the session details page
+      showSuccess("Sesión creada exitosamente");
       router.push(`/${projectId}/sessions/${data.id}`);
     } catch (error) {
-      console.error("Error creating session:", error);
-      alert("Error al crear la sesión");
+      handleError(error, "Error al crear la sesión");
     } finally {
       setIsCreating(false);
     }
@@ -260,6 +262,7 @@ function QuestionnaireContent() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

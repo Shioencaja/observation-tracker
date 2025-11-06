@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -26,23 +26,42 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PaginationWrapper } from "@/components/ui/pagination-wrapper";
-import { Loader2 } from "lucide-react";
+import { FullPageLoading, TableSkeleton } from "@/components/loading";
 import { usePagination } from "@/hooks/use-pagination";
 import { Badge } from "@/components/ui/badge";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
+import { useDebounce } from "@/hooks/use-debounce";
+import { useRequireAuth } from "@/hooks/use-require-auth";
+import { useAsyncOperation } from "@/hooks/use-async-operation";
 
+/**
+ * Projects Page Component
+ * Displays a list of projects with search, pagination, and project management features
+ * @returns {JSX.Element} The projects page component
+ */
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectWithAccess[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeSearchTerm, setActiveSearchTerm] = useState("");
-  const { user, signOut, loading: authLoading } = useAuth();
+  const { user, signOut } = useAuth();
   const router = useRouter();
+  const { toasts, handleError, removeToast } = useToastManager();
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/login");
-    }
-  }, [user, authLoading, router]);
+  // Require authentication
+  const { isLoading: authLoading } = useRequireAuth();
+
+  // Async operation hook for loading projects
+  const {
+    isLoading,
+    execute: executeAsync,
+  } = useAsyncOperation<ProjectWithAccess[]>({
+    onError: (error) => {
+      handleError(error, "Error al cargar los proyectos");
+    },
+  });
+
+  // Debounce search term to avoid filtering on every keystroke
+  const activeSearchTerm = useDebounce(searchTerm, 300);
 
   useEffect(() => {
     if (user) {
@@ -53,24 +72,19 @@ export default function ProjectsPage() {
   const loadProjects = async () => {
     if (!user) return;
 
-    try {
-      setIsLoading(true);
+    await executeAsync(async () => {
       const { data, error } = await projectService.getProjectsByUserAccess(
         user.id
       );
 
       if (error) {
-        console.error("Error loading projects:", error);
+        // Error is handled by useAsyncOperation hook
         throw error;
       }
 
       setProjects(data || []);
-    } catch (error) {
-      console.error("Error loading projects:", error);
-      alert("Error al cargar proyectos");
-    } finally {
-      setIsLoading(false);
-    }
+      return data || [];
+    });
   };
 
   const handleProjectSelect = (projectId: string) => {
@@ -82,27 +96,22 @@ export default function ProjectsPage() {
     router.push(`/${projectId}/sessions`);
   };
 
-  const handleSearch = () => {
-    setActiveSearchTerm(searchTerm);
-  };
-
+  // Search is now automatic via debounce
   const handleClearSearch = () => {
     setSearchTerm("");
-    setActiveSearchTerm("");
+    // activeSearchTerm will automatically update via debounce
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      handleSearch();
+  // Memoize filtered projects to avoid recalculating on every render
+  const filteredProjects = useMemo(() => {
+    if (!activeSearchTerm) {
+      return projects;
     }
-  };
-
-  // Filter projects based on active search term
-  const filteredProjects = projects.filter((projectWithAccess) =>
-    projectWithAccess.project.name
-      .toLowerCase()
-      .includes(activeSearchTerm.toLowerCase())
-  );
+    const searchLower = activeSearchTerm.toLowerCase();
+    return projects.filter((projectWithAccess) =>
+      projectWithAccess.project.name.toLowerCase().includes(searchLower)
+    );
+  }, [projects, activeSearchTerm]);
 
   // Pagination for filtered projects
   const {
@@ -116,25 +125,11 @@ export default function ProjectsPage() {
   });
 
   if (authLoading || isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Cargando proyectos...</p>
-        </div>
-      </div>
-    );
+    return <FullPageLoading text="Cargando proyectos..." />;
   }
 
   if (!user) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Redirigiendo...</p>
-        </div>
-      </div>
-    );
+    return <FullPageLoading text="Redirigiendo..." />;
   }
 
   return (
@@ -151,18 +146,10 @@ export default function ProjectsPage() {
                 placeholder="Buscar proyectos..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="pr-20 border-gray-200 focus:border-gray-400 focus:ring-gray-400"
+                className="pr-10 border-gray-200 focus:border-gray-400 focus:ring-gray-400"
               />
               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-                <button
-                  onClick={handleSearch}
-                  className="text-gray-400 hover:text-gray-600 transition-colors p-1"
-                  title="Buscar"
-                >
-                  <Search className="h-4 w-4" />
-                </button>
-                {(searchTerm || activeSearchTerm) && (
+                {searchTerm && (
                   <button
                     onClick={handleClearSearch}
                     className="text-gray-400 hover:text-gray-600 transition-colors p-1"
@@ -286,6 +273,7 @@ export default function ProjectsPage() {
                               }
                               className="h-8 w-8 p-0"
                               title="Sesiones"
+                              aria-label={`Ver sesiones de ${projectWithAccess.project.name}`}
                             >
                               <Users className="h-4 w-4" />
                             </Button>
@@ -318,6 +306,7 @@ export default function ProjectsPage() {
                                   }}
                                   className="h-8 w-8 p-0"
                                   title="Configuración"
+                                  aria-label={`Configurar proyecto ${projectWithAccess.project.name}`}
                                 >
                                   <Settings className="h-4 w-4" />
                                 </Button>
@@ -397,6 +386,7 @@ export default function ProjectsPage() {
                         }
                         className="h-8 w-8 p-0"
                         title="Sesiones"
+                        aria-label={`Ver sesiones de ${projectWithAccess.project.name}`}
                       >
                         <Users className="h-4 w-4" />
                       </Button>
@@ -428,6 +418,7 @@ export default function ProjectsPage() {
                           }}
                           className="h-8 w-8 p-0"
                           title="Configuración"
+                          aria-label={`Configurar proyecto ${projectWithAccess.project.name}`}
                         >
                           <Settings className="h-4 w-4" />
                         </Button>
@@ -449,6 +440,7 @@ export default function ProjectsPage() {
           />
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }

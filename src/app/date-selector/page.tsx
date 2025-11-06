@@ -15,12 +15,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { FullPageLoading } from "@/components/LoadingSpinner";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 
 function DateSelectorPageContent() {
   const { user, loading: authLoading, signOut } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toasts, handleError, removeToast } = useToastManager();
   const [project, setProject] = useState<Project | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(true);
   const [selectedAgency, setSelectedAgency] = useState<string>("");
@@ -66,8 +69,7 @@ function DateSelectorPageContent() {
         setSelectedAgency(data.agencies[0]);
       }
     } catch (error) {
-      console.error("Error loading project:", error);
-      alert("Error al cargar proyecto");
+      handleError(error, "Error al cargar el proyecto");
       router.push("/projects");
     } finally {
       setIsLoadingProject(false);
@@ -90,14 +92,7 @@ function DateSelectorPageContent() {
   };
 
   if (authLoading || isLoadingProject) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-          <p className="text-muted-foreground">Cargando proyecto...</p>
-        </div>
-      </div>
-    );
+    return <FullPageLoading text="Cargando proyecto..." />;
   }
 
   if (!user || !project) {
@@ -201,24 +196,14 @@ function DateSelectorPageContent() {
           </Card>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
 
 export default function DateSelectorPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-primary" />
-            <p className="text-muted-foreground">
-              Cargando selector de fecha...
-            </p>
-          </div>
-        </div>
-      }
-    >
+    <Suspense fallback={<FullPageLoading text="Cargando selector de fecha..." />}>
       <DateSelectorPageContent />
     </Suspense>
   );

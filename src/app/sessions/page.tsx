@@ -19,6 +19,8 @@ import SessionsTable from "@/components/SessionsTable";
 import QuestionnaireForm from "@/components/QuestionnaireForm";
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 
 export default function SessionsPage() {
   return (
@@ -80,14 +82,16 @@ function SessionsPageContent() {
     string | null
   >(null);
 
+  const { toasts, handleError, showSuccess, showError, removeToast } = useToastManager();
+
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/login");
     }
   }, [user, authLoading, router]);
 
-  // Load project from URL parameter
-  const loadProject = useCallback(async () => {
+  // Optimized: Load project and observation options in parallel
+  const loadProjectAndOptions = useCallback(async () => {
     const projectId = searchParams.get("project");
     if (!projectId) {
       setIsLoadingProject(false);
@@ -95,50 +99,62 @@ function SessionsPageContent() {
     }
 
     try {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*")
-        .eq("id", projectId)
-        .single();
+      setIsLoadingProject(true);
+      
+      // Load both project and observation options in parallel
+      const [projectResult, optionsResult] = await Promise.all([
+        supabase
+          .from("projects")
+          .select("*")
+          .eq("id", projectId)
+          .single(),
+        supabase
+          .from("project_observation_options")
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("is_visible", true)
+          .order("order", { ascending: true }),
+      ]);
 
-      if (error) throw error;
-      setProject(data);
+      if (projectResult.error) throw projectResult.error;
+      if (optionsResult.error) throw optionsResult.error;
+
+      setProject(projectResult.data);
+      setObservationOptions(optionsResult.data || []);
     } catch (error) {
-      console.error("Error loading project:", error);
+      console.error("Error loading project and options:", error);
+      handleError(error, "Error al cargar el proyecto");
     } finally {
       setIsLoadingProject(false);
     }
-  }, [searchParams]);
-
-  const loadObservationOptions = async () => {
-    if (!project) return;
-
-    try {
-      const { data, error } = await supabase
-        .from("project_observation_options")
-        .select("*")
-        .eq("project_id", project.id)
-        .eq("is_visible", true)
-        .order("order", { ascending: true });
-
-      if (error) throw error;
-      setObservationOptions(data || []);
-    } catch (error) {
-      console.error("Error loading observation options:", error);
-    }
-  };
+  }, [searchParams, handleError]);
 
   const loadAllSessions = useCallback(async () => {
     if (!user || !project) return;
 
     try {
+      setIsLoading(true);
+      
       // Get sessions for the selected date (using local timezone)
       const startOfDay = new Date(selectedDate + "T00:00:00");
       const endOfDay = new Date(selectedDate + "T23:59:59.999");
 
+      // Optimized: Use join query to load sessions and observations in a single query
       let query = supabase
         .from("sessions")
-        .select("*")
+        .select(`
+          *,
+          observations (
+            id,
+            session_id,
+            user_id,
+            project_observation_option_id,
+            response,
+            alias,
+            created_at,
+            updated_at
+          )
+        `)
         .eq("user_id", user.id)
         .eq("project_id", project.id)
         .gte("start_time", startOfDay.toISOString())
@@ -155,33 +171,40 @@ function SessionsPageContent() {
       );
 
       if (sessionError) {
-        console.error("Session error:", sessionError);
-        alert(`Database error: ${sessionError.message}`);
+        handleError(sessionError, "Error al cargar las sesiones");
         return;
       }
 
       if (sessionsData && sessionsData.length > 0) {
-        // Get observations for all sessions
-        const sessionIds = sessionsData.map((s) => s.id);
-        const { data: observations, error: obsError } = await supabase
-          .from("observations")
-          .select("*")
-          .eq("user_id", user.id)
-          .in("session_id", sessionIds)
-          .order("created_at", { ascending: true });
-
-        if (obsError) {
-          console.error("Observations error:", obsError);
-          alert(`Database error: ${obsError.message}`);
-          return;
-        }
-
-        // Group observations by session
-        const sessionsWithObservations = sessionsData.map((session) => ({
-          ...session,
-          observations:
-            observations?.filter((obs) => obs.session_id === session.id) || [],
-        }));
+        // Format the response to match SessionWithObservations type
+        // Supabase returns observations as an array for each session
+        const sessionsWithObservations: SessionWithObservations[] = sessionsData.map(
+          (session: any) => ({
+            id: session.id,
+            user_id: session.user_id,
+            project_id: session.project_id,
+            agency: session.agency,
+            alias: session.alias,
+            start_time: session.start_time,
+            end_time: session.end_time,
+            created_at: session.created_at,
+            updated_at: session.updated_at,
+            observations: (session.observations || [])
+              .sort((a: any, b: any) => 
+                new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+              )
+              .map((obs: any) => ({
+                id: obs.id,
+                session_id: obs.session_id || session.id,
+                user_id: obs.user_id || session.user_id,
+                project_observation_option_id: obs.project_observation_option_id,
+                response: obs.response,
+                alias: obs.alias,
+                created_at: obs.created_at,
+                updated_at: obs.updated_at,
+              })),
+          })
+        );
 
         setSessions(sessionsWithObservations);
 
@@ -198,24 +221,19 @@ function SessionsPageContent() {
         }
       }
     } catch (error) {
-      console.error("Error loading sessions:", error);
-      alert(`Unexpected error: ${error}`);
+      handleError(error, "Error inesperado al cargar las sesiones");
     } finally {
       setIsLoading(false);
     }
-  }, [user, project, selectedDate, selectedSessionId]);
+  }, [user, project, selectedDate, selectedAgency, selectedSessionId, handleError]);
 
   useEffect(() => {
-    // Load project first
-    loadProject();
-  }, [loadProject]);
+    // Load project and observation options in parallel
+    loadProjectAndOptions();
+  }, [loadProjectAndOptions]);
 
   useEffect(() => {
-    // Load observation options when project is available
-    if (project) {
-      loadObservationOptions();
-    }
-
+    // Load sessions when user and project are available
     if (user && project) {
       loadAllSessions();
     } else {
@@ -229,7 +247,7 @@ function SessionsPageContent() {
 
     // Prevent creating sessions if project is finished
     if (project.is_finished) {
-      alert(
+      showError(
         "Este proyecto ha sido finalizado. No se pueden crear nuevas sesiones."
       );
       return;
@@ -289,9 +307,9 @@ function SessionsPageContent() {
       const params = new URLSearchParams(searchParams.toString());
       params.set("session", data.id);
       router.push(`/sessions?${params.toString()}`);
+      showSuccess("Sesión creada exitosamente");
     } catch (error) {
-      console.error("Error creating session:", error);
-      alert("Error al crear sesión");
+      handleError(error, "Error al crear la sesión");
     } finally {
       setIsCreatingSession(false);
     }
@@ -349,10 +367,10 @@ function SessionsPageContent() {
         throw error;
       }
 
-      console.log("✅ Session finished successfully");
       await loadAllSessions(); // Reload sessions to update the UI
+      showSuccess("Sesión finalizada exitosamente");
     } catch (error) {
-      console.error("Error finishing session:", error);
+      handleError(error, "Error al finalizar la sesión");
     }
   };
 
@@ -388,12 +406,9 @@ function SessionsPageContent() {
 
       // Reload all sessions to get updated data
       await loadAllSessions();
+      showSuccess("Observación creada exitosamente");
     } catch (error) {
-      console.error("Error creating observation:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
-      alert(
-        `Error: ${error instanceof Error ? error.message : "Error desconocido"}`
-      );
+      handleError(error, "Error al crear la observación");
     } finally {
       // Observation creation completed
     }
@@ -585,6 +600,7 @@ function SessionsPageContent() {
           </div>
         </div>
       </div>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </ErrorBoundary>
   );
 }
