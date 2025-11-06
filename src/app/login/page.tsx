@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
 import { LoadingButton } from "@/components/loading/LoadingButton";
 import { FullPageLoading } from "@/components/LoadingSpinner";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {

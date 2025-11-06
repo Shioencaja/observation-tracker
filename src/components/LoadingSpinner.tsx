@@ -65,10 +65,10 @@ export function FullPageLoading({
   showLogo?: boolean;
 }) {
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
+    <div className="min-h-screen bg-background flex items-center justify-center" suppressHydrationWarning>
       <div className="text-center space-y-4">
         {showLogo && (
-          <div className="mb-8">
+          <div className="mb-8" suppressHydrationWarning>
             <div className="w-32 h-12 bg-muted rounded animate-pulse mx-auto" />
           </div>
         )}
