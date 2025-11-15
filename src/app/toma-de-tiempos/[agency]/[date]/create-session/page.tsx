@@ -296,10 +296,10 @@ function CreateSessionPageContent() {
     try {
       setIsLoadingSessions(true);
 
-      // Parse the date and create date range for the day
-      const dateObj = new Date(date + "T00:00:00");
-      const startOfDay = dateObj.toISOString();
-      const endOfDay = new Date(date + "T23:59:59.999").toISOString();
+      // Parse the date and create date range for the day in Peruvian timezone
+      // Format timestamps with timezone for timestamptz columns
+      const startOfDay = `${date}T00:00:00.000-05:00`;
+      const endOfDay = `${date}T23:59:59.999-05:00`;
 
       // Load sessions for the date and agency
       const { data: sessionsData, error: sessionsError } = await supabase
@@ -365,11 +365,15 @@ function CreateSessionPageContent() {
       
       // Set finished cards
       const finished = new Set<string>();
+      // Set all cards as minimized on load
+      const minimized = new Set<string>();
       cards.forEach((card) => {
+        minimized.add(card.id);
         if (card.finishTime) {
           finished.add(card.id);
         }
       });
+      setMinimizedCards(minimized);
       setFinishedCards(finished);
     } catch (error) {
       console.error("Error loading sessions:", error);
@@ -399,7 +403,7 @@ function CreateSessionPageContent() {
       });
 
       // Create session in database
-      const startTime = new Date().toISOString();
+      const startTime = getPeruvianTimeISO();
       const { data: newSession, error: sessionError } = await supabase
         .from("tdt_sessions")
         .insert({
@@ -488,7 +492,7 @@ function CreateSessionPageContent() {
     if (!card || !card.dbId) return;
 
     try {
-      const finishTimestamp = new Date().toISOString();
+      const finishTimestamp = getPeruvianTimeISO();
 
       // Update session in database
       const { error: sessionError } = await supabase
@@ -562,7 +566,7 @@ function CreateSessionPageContent() {
       firstDropdown: "",
       secondDropdown: "",
       thirdDropdown: "",
-      startTime: new Date().toISOString(), // Set start time when dialog opens
+        startTime: getPeruvianTimeISO(), // Set start time when dialog opens
     });
     setIsDialogOpen(true);
   };
@@ -638,7 +642,7 @@ function CreateSessionPageContent() {
         );
       } else {
         // Creating new observation
-        const startTime = dialogFormData.startTime || new Date().toISOString();
+        const startTime = dialogFormData.startTime || getPeruvianTimeISO();
 
         // Create observation in database
         const { data: newObservation, error: insertError } = await supabase
@@ -863,7 +867,7 @@ function CreateSessionPageContent() {
     if (!observation || !observation.dbId) return;
 
     try {
-      const endTime = new Date().toISOString();
+      const endTime = getPeruvianTimeISO();
 
       // Update observation in database
       const { error: updateError } = await supabase
@@ -902,13 +906,49 @@ function CreateSessionPageContent() {
     }
   };
 
-  const formatTime = (isoString: string | null): string => {
-    if (!isoString) return "";
-    const date = new Date(isoString);
-    return date.toLocaleTimeString("es-ES", {
+  // Helper function to get current time in Peruvian timezone as ISO string with timezone
+  // Returns format: "YYYY-MM-DDTHH:mm:ss.sss-05:00" for timestamptz
+  const getPeruvianTimeISO = (): string => {
+    const now = new Date();
+    
+    // Get the current time components in Peruvian timezone
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Lima",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
+      hour12: false,
+    });
+    
+    const parts = formatter.formatToParts(now);
+    const year = parts.find((p) => p.type === "year")?.value || "0";
+    const month = parts.find((p) => p.type === "month")?.value || "0";
+    const day = parts.find((p) => p.type === "day")?.value || "0";
+    const hour = parts.find((p) => p.type === "hour")?.value || "0";
+    const minute = parts.find((p) => p.type === "minute")?.value || "0";
+    const second = parts.find((p) => p.type === "second")?.value || "0";
+    
+    // Get milliseconds
+    const ms = now.getMilliseconds().toString().padStart(3, "0");
+    
+    // Format as ISO string with Peruvian timezone offset (-05:00)
+    // Format: YYYY-MM-DDTHH:mm:ss.sss-05:00
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}-05:00`;
+  };
+
+  const formatTime = (isoString: string | null): string => {
+    if (!isoString) return "";
+    // Parse the timestamp - it may be in UTC or with timezone
+    const date = new Date(isoString);
+    // Format in Peruvian timezone
+    return date.toLocaleTimeString("es-PE", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZone: "America/Lima",
     });
   };
 
