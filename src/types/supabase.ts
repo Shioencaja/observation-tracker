@@ -39,6 +39,21 @@ export type Database = {
   }
   public: {
     Tables: {
+      lista_agencias: {
+        Row: {
+          CODSUCAGE: number
+          DESSUCAGE: string | null
+        }
+        Insert: {
+          CODSUCAGE: number
+          DESSUCAGE?: string | null
+        }
+        Update: {
+          CODSUCAGE?: number
+          DESSUCAGE?: string | null
+        }
+        Relationships: []
+      }
       observations: {
         Row: {
           agency: string | null
@@ -110,6 +125,7 @@ export type Database = {
           is_mandatory: boolean | null
           is_visible: boolean | null
           name: string
+          next_question_map: Json | null
           options: string[] | null
           order: number
           project_id: string
@@ -126,6 +142,7 @@ export type Database = {
           is_mandatory?: boolean | null
           is_visible?: boolean | null
           name: string
+          next_question_map?: Json | null
           options?: string[] | null
           order?: number
           project_id: string
@@ -142,6 +159,7 @@ export type Database = {
           is_mandatory?: boolean | null
           is_visible?: boolean | null
           name?: string
+          next_question_map?: Json | null
           options?: string[] | null
           order?: number
           project_id?: string
@@ -172,6 +190,7 @@ export type Database = {
           created_at: string | null
           id: string
           project_id: string
+          role: Database["public"]["Enums"]["user_role"] | null
           user_id: string
         }
         Insert: {
@@ -179,6 +198,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           project_id: string
+          role?: Database["public"]["Enums"]["user_role"] | null
           user_id: string
         }
         Update: {
@@ -186,6 +206,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           project_id?: string
+          role?: Database["public"]["Enums"]["user_role"] | null
           user_id?: string
         }
         Relationships: [
@@ -272,6 +293,150 @@ export type Database = {
           },
         ]
       }
+      tdt_agencias: {
+        Row: {
+          agencia: number | null
+          created_at: string
+          id: number
+        }
+        Insert: {
+          agencia?: number | null
+          created_at?: string
+          id?: number
+        }
+        Update: {
+          agencia?: number | null
+          created_at?: string
+          id?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tdt_agencias_agencia_fkey"
+            columns: ["agencia"]
+            isOneToOne: false
+            referencedRelation: "lista_agencias"
+            referencedColumns: ["CODSUCAGE"]
+          },
+        ]
+      }
+      tdt_observations: {
+        Row: {
+          canal: string | null
+          created_at: string
+          descripcion: string | null
+          fin: string | null
+          id: number
+          inicio: string | null
+          lugar: string | null
+          tdt_session: number
+        }
+        Insert: {
+          canal?: string | null
+          created_at?: string
+          descripcion?: string | null
+          fin?: string | null
+          id?: number
+          inicio?: string | null
+          lugar?: string | null
+          tdt_session: number
+        }
+        Update: {
+          canal?: string | null
+          created_at?: string
+          descripcion?: string | null
+          fin?: string | null
+          id?: number
+          inicio?: string | null
+          lugar?: string | null
+          tdt_session?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tdt_observations_tdt_session_fkey"
+            columns: ["tdt_session"]
+            isOneToOne: false
+            referencedRelation: "tdt_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tdt_options: {
+        Row: {
+          canal: string | null
+          descripción: string | null
+          id: string
+          lugar: string | null
+        }
+        Insert: {
+          canal?: string | null
+          descripción?: string | null
+          id?: string
+          lugar?: string | null
+        }
+        Update: {
+          canal?: string | null
+          descripción?: string | null
+          id?: string
+          lugar?: string | null
+        }
+        Relationships: []
+      }
+      tdt_sessions: {
+        Row: {
+          agencia: number | null
+          cliente: string | null
+          comentarios: string | null
+          created_at: string
+          fin: string | null
+          id: number
+          inicio: string | null
+        }
+        Insert: {
+          agencia?: number | null
+          cliente?: string | null
+          comentarios?: string | null
+          created_at?: string
+          fin?: string | null
+          id?: number
+          inicio?: string | null
+        }
+        Update: {
+          agencia?: number | null
+          cliente?: string | null
+          comentarios?: string | null
+          created_at?: string
+          fin?: string | null
+          id?: number
+          inicio?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tdt_sessions_agencia_fkey"
+            columns: ["agencia"]
+            isOneToOne: false
+            referencedRelation: "lista_agencias"
+            referencedColumns: ["CODSUCAGE"]
+          },
+        ]
+      }
+      tdt_users: {
+        Row: {
+          created_at: string
+          id: number
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: number
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: number
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -282,7 +447,7 @@ export type Database = {
         Returns: string
       }
       get_all_users: {
-        Args: Record<PropertyKey, never>
+        Args: never
         Returns: {
           email: string
           user_id: string
@@ -305,7 +470,7 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      user_role: "creator" | "admin" | "editor" | "viewer"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -435,6 +600,8 @@ export const Constants = {
     Enums: {},
   },
   public: {
-    Enums: {},
+    Enums: {
+      user_role: ["creator", "admin", "editor", "viewer"],
+    },
   },
 } as const

@@ -1,48 +1,49 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { useAsyncOperation } from '../use-async-operation';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, waitFor, act } from "@testing-library/react";
+import { useAsyncOperation } from "../use-async-operation";
 
-describe('useAsyncOperation', () => {
+describe("useAsyncOperation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should initialize with loading false and error null', () => {
+  it("should initialize with loading false and error null", () => {
     const { result } = renderHook(() => useAsyncOperation());
 
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBe(null);
   });
 
-  it('should set loading to true during async operation', async () => {
+  it("should set loading to true during async operation", async () => {
     const { result } = renderHook(() => useAsyncOperation());
 
     let promise: Promise<string>;
     await act(async () => {
       promise = result.current.execute(async () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
-        return 'success';
+        return "success";
       });
     });
 
-    expect(result.current.isLoading).toBe(true);
+    // Wait for loading state to become true (React state updates are async)
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(true);
+    });
 
     await act(async () => {
       await promise!;
     });
-    
+
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
     });
   });
 
-  it('should handle successful operation', async () => {
+  it("should handle successful operation", async () => {
     const onSuccess = vi.fn();
-    const { result } = renderHook(() =>
-      useAsyncOperation({ onSuccess })
-    );
+    const { result } = renderHook(() => useAsyncOperation({ onSuccess }));
 
-    const data = { id: 1, name: 'Test' };
+    const data = { id: 1, name: "Test" };
     await act(async () => {
       await result.current.execute(async () => {
         return data;
@@ -56,12 +57,12 @@ describe('useAsyncOperation', () => {
     });
   });
 
-  it('should handle error in operation', async () => {
+  it("should handle error in operation", async () => {
     const onError = vi.fn();
     const { result } = renderHook(() => useAsyncOperation({ onError }));
 
-    const error = new Error('Test error');
-    
+    const error = new Error("Test error");
+
     await act(async () => {
       try {
         await result.current.execute(async () => {
@@ -74,19 +75,19 @@ describe('useAsyncOperation', () => {
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
-      expect(result.current.error).toBe('Test error');
+      expect(result.current.error).toBe("Test error");
       expect(onError).toHaveBeenCalledWith(error);
     });
   });
 
-  it('should reset error on start by default', async () => {
+  it("should reset error on start by default", async () => {
     const { result } = renderHook(() => useAsyncOperation());
 
     // First operation with error
     await act(async () => {
       try {
         await result.current.execute(async () => {
-          throw new Error('First error');
+          throw new Error("First error");
         });
       } catch (e) {
         // Expected
@@ -94,13 +95,13 @@ describe('useAsyncOperation', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe('First error');
+      expect(result.current.error).toBe("First error");
     });
 
     // Second operation should reset error
     await act(async () => {
       await result.current.execute(async () => {
-        return 'success';
+        return "success";
       });
     });
 
@@ -109,7 +110,7 @@ describe('useAsyncOperation', () => {
     });
   });
 
-  it('should not reset error when resetErrorOnStart is false', async () => {
+  it("should not reset error when resetErrorOnStart is false", async () => {
     const { result } = renderHook(() =>
       useAsyncOperation({ resetErrorOnStart: false })
     );
@@ -118,7 +119,7 @@ describe('useAsyncOperation', () => {
     await act(async () => {
       try {
         await result.current.execute(async () => {
-          throw new Error('First error');
+          throw new Error("First error");
         });
       } catch (e) {
         // Expected
@@ -126,7 +127,7 @@ describe('useAsyncOperation', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe('First error');
+      expect(result.current.error).toBe("First error");
     });
 
     // Start second operation - error should persist
@@ -134,24 +135,24 @@ describe('useAsyncOperation', () => {
     await act(async () => {
       promise = result.current.execute(async () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
-        return 'success';
+        return "success";
       });
     });
 
-    expect(result.current.error).toBe('First error');
+    expect(result.current.error).toBe("First error");
 
     await act(async () => {
       await promise!;
     });
   });
 
-  it('should allow manual error reset', async () => {
+  it("should allow manual error reset", async () => {
     const { result } = renderHook(() => useAsyncOperation());
 
     await act(async () => {
       try {
         await result.current.execute(async () => {
-          throw new Error('Test error');
+          throw new Error("Test error");
         });
       } catch (e) {
         // Expected
@@ -159,7 +160,7 @@ describe('useAsyncOperation', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe('Test error');
+      expect(result.current.error).toBe("Test error");
     });
 
     act(() => {
@@ -169,13 +170,13 @@ describe('useAsyncOperation', () => {
     expect(result.current.error).toBe(null);
   });
 
-  it('should handle non-Error objects', async () => {
+  it("should handle non-Error objects", async () => {
     const { result } = renderHook(() => useAsyncOperation());
 
     await act(async () => {
       try {
         await result.current.execute(async () => {
-          throw 'String error';
+          throw "String error";
         });
       } catch (e) {
         // Expected
@@ -183,11 +184,11 @@ describe('useAsyncOperation', () => {
     });
 
     await waitFor(() => {
-      expect(result.current.error).toBe('An error occurred');
+      expect(result.current.error).toBe("An error occurred");
     });
   });
 
-  it('should work with typed generic', async () => {
+  it("should work with typed generic", async () => {
     interface TestData {
       id: number;
       name: string;
@@ -195,7 +196,7 @@ describe('useAsyncOperation', () => {
 
     const { result } = renderHook(() => useAsyncOperation<TestData>());
 
-    const data: TestData = { id: 1, name: 'Test' };
+    const data: TestData = { id: 1, name: "Test" };
     let returned: TestData | undefined;
     await act(async () => {
       returned = await result.current.execute(async () => {
@@ -206,4 +207,3 @@ describe('useAsyncOperation', () => {
     expect(returned).toEqual(data);
   });
 });
-
