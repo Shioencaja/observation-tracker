@@ -36,6 +36,7 @@ function TomaDeTiemposPageContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [selectedAgency, setSelectedAgency] = useState<string>("");
+  const [selectedRole, setSelectedRole] = useState<string>("");
   const [agencies, setAgencies] = useState<AgencyOption[]>([]);
   const [isLoadingAgencies, setIsLoadingAgencies] = useState(true);
 
@@ -110,15 +111,19 @@ function TomaDeTiemposPageContent() {
   };
 
   const handleContinue = () => {
-    if (selectedAgency) {
+    if (selectedAgency && selectedRole) {
       // Get today's date in YYYY-MM-DD format
       const today = new Date();
       const dateString = today.toISOString().split("T")[0];
-      // Navigate to create session page with selected agency and date
+      // Navigate to create session page with selected agency, date, and role
       // selectedAgency is the agency name, convert it to slug
       const agencySlug = selectedAgency.toLowerCase().replace(/\s+/g, "-");
+      // Convert role to URL-safe slug (Guía -> guia, Gerente -> gerente)
+      const roleSlug = selectedRole.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, ""); // Remove accents
       router.push(
-        `/toma-de-tiempos/${agencySlug}/${dateString}/create-session`
+        `/toma-de-tiempos/${agencySlug}/${dateString}/${roleSlug}/create-session`
       );
     }
   };
@@ -164,7 +169,7 @@ function TomaDeTiemposPageContent() {
             Toma de Tiempos
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            Selecciona una agencia para continuar
+            Selecciona una agencia y rol para continuar
           </p>
         </div>
 
@@ -205,11 +210,30 @@ function TomaDeTiemposPageContent() {
             )}
           </div>
 
+          {/* Role Selector */}
+          <div>
+            <label className="text-sm font-medium text-gray-700">
+              Rol *
+            </label>
+            <Select
+              value={selectedRole}
+              onValueChange={setSelectedRole}
+            >
+              <SelectTrigger className="mt-2 w-full h-11 border-gray-200 focus:border-gray-400 focus:ring-gray-400">
+                <SelectValue placeholder="Seleccionar rol..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Guía">Guía</SelectItem>
+                <SelectItem value="Gerente">Gerente</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Continue Button */}
           <div className="pt-6 border-t border-gray-100">
             <Button
               onClick={handleContinue}
-              disabled={!selectedAgency}
+              disabled={!selectedAgency || !selectedRole}
               className="w-full bg-gray-900 hover:bg-gray-800 text-white"
               size="lg"
             >

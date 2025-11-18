@@ -165,8 +165,12 @@ function CreateSessionPageContent() {
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ");
       setSelectedAgency(formattedAgency);
-      // Convert role slug back to readable format (e.g., "guía" -> "Guía", "gerente" -> "Gerente")
-      const formattedRole = role.charAt(0).toUpperCase() + role.slice(1);
+      // Map URL slug back to proper role name (guia -> Guía, gerente -> Gerente)
+      const roleMap: { [key: string]: string } = {
+        guia: "Guía",
+        gerente: "Gerente",
+      };
+      const formattedRole = roleMap[role.toLowerCase()] || role;
       setSelectedRole(formattedRole);
       loadAgencyCode(agency, formattedAgency);
     } else {

@@ -366,18 +366,21 @@ export type Database = {
           descripción: string | null
           id: string
           lugar: string | null
+          rol: string | null
         }
         Insert: {
           canal?: string | null
           descripción?: string | null
           id?: string
           lugar?: string | null
+          rol?: string | null
         }
         Update: {
           canal?: string | null
           descripción?: string | null
           id?: string
           lugar?: string | null
+          rol?: string | null
         }
         Relationships: []
       }
@@ -390,6 +393,7 @@ export type Database = {
           fin: string | null
           id: number
           inicio: string | null
+          rol: string | null
         }
         Insert: {
           agencia?: number | null
@@ -399,6 +403,7 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
+          rol?: string | null
         }
         Update: {
           agencia?: number | null
@@ -408,6 +413,7 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
+          rol?: string | null
         }
         Relationships: [
           {

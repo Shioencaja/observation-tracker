@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -42,12 +43,14 @@ function SettingsPageContent() {
 
   // Options state
   const [tdtOptions, setTdtOptions] = useState<TdtOption[]>([]);
+  const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>("all");
   const [isOptionDialogOpen, setIsOptionDialogOpen] = useState(false);
   const [editingOption, setEditingOption] = useState<TdtOption | null>(null);
   const [optionFormData, setOptionFormData] = useState({
     canal: "",
     descripción: "",
     lugar: "",
+    rol: "",
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -199,6 +202,7 @@ function SettingsPageContent() {
         canal: option.canal || "",
         descripción: option.descripción || "",
         lugar: option.lugar || "",
+        rol: option.rol || "",
       });
     } else {
       setEditingOption(null);
@@ -206,6 +210,7 @@ function SettingsPageContent() {
         canal: "",
         descripción: "",
         lugar: "",
+        rol: "",
       });
     }
     setIsOptionDialogOpen(true);
@@ -221,6 +226,11 @@ function SettingsPageContent() {
       return;
     }
 
+    if (!optionFormData.rol) {
+      alert("Debe seleccionar un rol");
+      return;
+    }
+
     try {
       setIsSaving(true);
       if (editingOption) {
@@ -231,6 +241,7 @@ function SettingsPageContent() {
             canal: optionFormData.canal || null,
             descripción: optionFormData.descripción || null,
             lugar: optionFormData.lugar || null,
+            rol: optionFormData.rol || null,
           })
           .eq("id", editingOption.id);
 
@@ -241,6 +252,7 @@ function SettingsPageContent() {
           canal: optionFormData.canal || null,
           descripción: optionFormData.descripción || null,
           lugar: optionFormData.lugar || null,
+          rol: optionFormData.rol || null,
         });
 
         if (error) throw error;
@@ -249,7 +261,7 @@ function SettingsPageContent() {
       await loadAllData();
       setIsOptionDialogOpen(false);
       setEditingOption(null);
-      setOptionFormData({ canal: "", descripción: "", lugar: "" });
+      setOptionFormData({ canal: "", descripción: "", lugar: "", rol: "" });
     } catch (error: any) {
       console.error("Error saving option:", error);
       const errorMessage =
@@ -302,6 +314,12 @@ function SettingsPageContent() {
       )
   );
 
+  // Filter options by selected role
+  const filteredOptions =
+    selectedRoleFilter === "all"
+      ? tdtOptions
+      : tdtOptions.filter((option) => option.rol === selectedRoleFilter);
+
   if (authLoading || isLoading) {
     return <FullPageLoading text="Cargando..." />;
   }
@@ -342,26 +360,22 @@ function SettingsPageContent() {
               <div className="space-y-4">
                 {/* Add Agencia */}
                 <div className="flex flex-col sm:flex-row gap-2">
-                  <Select
+                  <Combobox
+                    options={availableAgencias.map((agencia) => ({
+                      value: agencia.CODSUCAGE.toString(),
+                      label: agencia.DESSUCAGE
+                        ? `${agencia.DESSUCAGE} (${agencia.CODSUCAGE})`
+                        : `Agencia ${agencia.CODSUCAGE}`,
+                    }))}
                     value={selectedAgencia?.toString() || ""}
                     onValueChange={(value) =>
                       setSelectedAgencia(value ? parseInt(value) : null)
                     }
-                  >
-                    <SelectTrigger className="flex-1 w-full">
-                      <SelectValue placeholder="Seleccionar agencia..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableAgencias.map((agencia) => (
-                        <SelectItem
-                          key={agencia.CODSUCAGE}
-                          value={agencia.CODSUCAGE.toString()}
-                        >
-                          {agencia.DESSUCAGE || `Agencia ${agencia.CODSUCAGE}`}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Seleccionar agencia..."
+                    searchPlaceholder="Buscar por nombre o código..."
+                    emptyText="No se encontraron agencias"
+                    className="flex-1 w-full"
+                  />
                   <Button
                     onClick={handleAddAgencia}
                     disabled={!selectedAgencia || isSaving}
@@ -425,66 +439,99 @@ function SettingsPageContent() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                {tdtOptions.length === 0 ? (
-                  <p className="text-gray-500 text-sm text-center py-4">
-                    No hay opciones configuradas
-                  </p>
-                ) : (
-                  tdtOptions.map((option) => (
-                    <div
-                      key={option.id}
-                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-lg gap-3"
-                    >
-                      <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
-                        <div>
-                          <span className="text-gray-500 font-medium">
-                            Canal:
-                          </span>{" "}
-                          <span className="text-gray-900">
-                            {option.canal || "-"}
-                          </span>
+              <div className="space-y-4">
+                {/* Role Filter */}
+                <div>
+                  <Label htmlFor="role-filter" className="text-sm font-medium">
+                    Filtrar por Rol
+                  </Label>
+                  <Select
+                    value={selectedRoleFilter}
+                    onValueChange={setSelectedRoleFilter}
+                  >
+                    <SelectTrigger className="mt-2 w-full sm:w-auto">
+                      <SelectValue placeholder="Seleccionar rol..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los roles</SelectItem>
+                      <SelectItem value="Guía">Guía</SelectItem>
+                      <SelectItem value="Gerente">Gerente</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Options List */}
+                <div className="space-y-2">
+                  {filteredOptions.length === 0 ? (
+                    <p className="text-gray-500 text-sm text-center py-4">
+                      {selectedRoleFilter === "all"
+                        ? "No hay opciones configuradas"
+                        : `No hay opciones para el rol seleccionado`}
+                    </p>
+                  ) : (
+                    filteredOptions.map((option) => (
+                      <div
+                        key={option.id}
+                        className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-lg gap-3"
+                      >
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500 font-medium">
+                              Rol:
+                            </span>{" "}
+                            <span className="text-gray-900">
+                              {option.rol || "-"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-medium">
+                              Lugar:
+                            </span>{" "}
+                            <span className="text-gray-900">
+                              {option.lugar || "-"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-medium">
+                              Canal:
+                            </span>{" "}
+                            <span className="text-gray-900">
+                              {option.canal || "-"}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 font-medium">
+                              Descripción:
+                            </span>{" "}
+                            <span className="text-gray-900">
+                              {option.descripción || "-"}
+                            </span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">
-                            Lugar:
-                          </span>{" "}
-                          <span className="text-gray-900">
-                            {option.lugar || "-"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-gray-500 font-medium">
-                            Descripción:
-                          </span>{" "}
-                          <span className="text-gray-900">
-                            {option.descripción || "-"}
-                          </span>
+                        <div className="flex gap-2 justify-end sm:justify-start">
+                          <Button
+                            onClick={() => handleOpenOptionDialog(option)}
+                            variant="ghost"
+                            size="sm"
+                            disabled={isSaving}
+                            className="flex-shrink-0"
+                          >
+                            <Edit size={16} />
+                          </Button>
+                          <Button
+                            onClick={() => handleDeleteOption(option.id)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                            disabled={isSaving}
+                          >
+                            <Trash2 size={16} />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex gap-2 justify-end sm:justify-start">
-                        <Button
-                          onClick={() => handleOpenOptionDialog(option)}
-                          variant="ghost"
-                          size="sm"
-                          disabled={isSaving}
-                          className="flex-shrink-0"
-                        >
-                          <Edit size={16} />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteOption(option.id)}
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
-                          disabled={isSaving}
-                        >
-                          <Trash2 size={16} />
-                        </Button>
-                      </div>
-                    </div>
-                  ))
-                )}
+                    ))
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -503,19 +550,24 @@ function SettingsPageContent() {
             </DialogHeader>
             <div className="space-y-4 py-4">
               <div>
-                <Label htmlFor="canal">Canal</Label>
-                <Input
-                  id="canal"
-                  value={optionFormData.canal}
-                  onChange={(e) =>
+                <Label htmlFor="rol">Rol *</Label>
+                <Select
+                  value={optionFormData.rol}
+                  onValueChange={(value) =>
                     setOptionFormData({
                       ...optionFormData,
-                      canal: e.target.value,
+                      rol: value,
                     })
                   }
-                  placeholder="Ej: Digital, Presencial..."
-                  className="mt-1"
-                />
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Seleccionar rol..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Guía">Guía</SelectItem>
+                    <SelectItem value="Gerente">Gerente</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="lugar">Lugar</Label>
@@ -529,6 +581,21 @@ function SettingsPageContent() {
                     })
                   }
                   placeholder="Ej: Oficina, Sucursal..."
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="canal">Canal</Label>
+                <Input
+                  id="canal"
+                  value={optionFormData.canal}
+                  onChange={(e) =>
+                    setOptionFormData({
+                      ...optionFormData,
+                      canal: e.target.value,
+                    })
+                  }
+                  placeholder="Ej: Digital, Presencial..."
                   className="mt-1"
                 />
               </div>
@@ -558,7 +625,7 @@ function SettingsPageContent() {
               </Button>
               <Button
                 onClick={handleSaveOption}
-                disabled={isSaving}
+                disabled={isSaving || !optionFormData.rol}
                 className="bg-gray-900 hover:bg-gray-800 text-white w-full sm:w-auto"
               >
                 <Save size={16} className="mr-2" />
