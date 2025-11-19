@@ -49,7 +49,6 @@ function SettingsPageContent() {
   const [optionFormData, setOptionFormData] = useState({
     canal: "",
     descripción: "",
-    lugar: "",
     rol: "",
   });
 
@@ -201,7 +200,6 @@ function SettingsPageContent() {
       setOptionFormData({
         canal: option.canal || "",
         descripción: option.descripción || "",
-        lugar: option.lugar || "",
         rol: option.rol || "",
       });
     } else {
@@ -209,7 +207,6 @@ function SettingsPageContent() {
       setOptionFormData({
         canal: "",
         descripción: "",
-        lugar: "",
         rol: "",
       });
     }
@@ -217,11 +214,7 @@ function SettingsPageContent() {
   };
 
   const handleSaveOption = async () => {
-    if (
-      !optionFormData.canal &&
-      !optionFormData.descripción &&
-      !optionFormData.lugar
-    ) {
+    if (!optionFormData.canal && !optionFormData.descripción) {
       alert("Debe completar al menos un campo");
       return;
     }
@@ -240,7 +233,6 @@ function SettingsPageContent() {
           .update({
             canal: optionFormData.canal || null,
             descripción: optionFormData.descripción || null,
-            lugar: optionFormData.lugar || null,
             rol: optionFormData.rol || null,
           })
           .eq("id", editingOption.id);
@@ -251,7 +243,6 @@ function SettingsPageContent() {
         const { error } = await supabase.from("tdt_options").insert({
           canal: optionFormData.canal || null,
           descripción: optionFormData.descripción || null,
-          lugar: optionFormData.lugar || null,
           rol: optionFormData.rol || null,
         });
 
@@ -261,7 +252,7 @@ function SettingsPageContent() {
       await loadAllData();
       setIsOptionDialogOpen(false);
       setEditingOption(null);
-      setOptionFormData({ canal: "", descripción: "", lugar: "", rol: "" });
+      setOptionFormData({ canal: "", descripción: "", rol: "" });
     } catch (error: any) {
       console.error("Error saving option:", error);
       const errorMessage =
@@ -474,21 +465,13 @@ function SettingsPageContent() {
                         key={option.id}
                         className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 border rounded-lg gap-3"
                       >
-                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2 sm:gap-4 text-sm">
+                        <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
                           <div>
                             <span className="text-gray-500 font-medium">
                               Rol:
                             </span>{" "}
                             <span className="text-gray-900">
                               {option.rol || "-"}
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-gray-500 font-medium">
-                              Lugar:
-                            </span>{" "}
-                            <span className="text-gray-900">
-                              {option.lugar || "-"}
                             </span>
                           </div>
                           <div>
@@ -568,21 +551,6 @@ function SettingsPageContent() {
                     <SelectItem value="Gerente">Gerente</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label htmlFor="lugar">Lugar</Label>
-                <Input
-                  id="lugar"
-                  value={optionFormData.lugar}
-                  onChange={(e) =>
-                    setOptionFormData({
-                      ...optionFormData,
-                      lugar: e.target.value,
-                    })
-                  }
-                  placeholder="Ej: Oficina, Sucursal..."
-                  className="mt-1"
-                />
               </div>
               <div>
                 <Label htmlFor="canal">Canal</Label>

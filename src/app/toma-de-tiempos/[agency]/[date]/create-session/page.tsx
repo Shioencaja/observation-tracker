@@ -66,11 +66,10 @@ interface SessionCard {
 }
 
 // Cascading options structure from tdt_options
-// Structure: lugar (first) -> canal (second) -> descripcion (third)
+// Structure: canal -> descripcion
+// Note: lugar comes from tdt_lugar table and is completely independent
 interface CascadingOptions {
-  [lugar: string]: {
-    [canal: string]: string[]; // Array of descripciones
-  };
+  [canal: string]: string[]; // Array of descripciones directly
 }
 
 function CreateSessionPageContent() {
@@ -88,7 +87,7 @@ function CreateSessionPageContent() {
   const [finishedCards, setFinishedCards] = useState<Set<string>>(new Set());
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   const [cascadingOptions, setCascadingOptions] = useState<CascadingOptions>({});
-  const [firstLevelOptions, setFirstLevelOptions] = useState<string[]>([]);
+  const [lugares, setLugares] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [savingComments, setSavingComments] = useState<Set<string>>(new Set());
   const [editingObservation, setEditingObservation] = useState<{
@@ -165,8 +164,13 @@ function CreateSessionPageContent() {
         .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(" ");
       setSelectedAgency(formattedAgency);
-      // Convert role slug back to readable format (e.g., "guía" -> "Guía", "gerente" -> "Gerente")
-      const formattedRole = role.charAt(0).toUpperCase() + role.slice(1);
+      // Convert role slug back to database format (e.g., "guia" -> "Guía", "gerente" -> "Gerente")
+      const roleMap: { [key: string]: string } = {
+        guia: "Guía",
+        gerente: "Gerente",
+      };
+      const formattedRole = roleMap[role.toLowerCase()] || role.charAt(0).toUpperCase() + role.slice(1);
+      console.log("Role mapping:", { urlRole: role, formattedRole });
       setSelectedRole(formattedRole);
       loadAgencyCode(agency, formattedAgency);
     } else {
@@ -174,6 +178,12 @@ function CreateSessionPageContent() {
       router.push("/toma-de-tiempos");
     }
   }, [agency, role, router]);
+
+  useEffect(() => {
+    if (user) {
+      loadLugares();
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user && selectedRole) {
@@ -187,8 +197,38 @@ function CreateSessionPageContent() {
     }
   }, [agencyCode, date, user, selectedRole]);
 
+  const loadLugares = async () => {
+    try {
+      // Load lugares from tdt_lugar table
+      const { data: lugaresData, error: lugaresError } = await supabase
+        .from("tdt_lugar")
+        .select("lugar")
+        .order("lugar");
+
+      if (lugaresError) {
+        console.error("Error loading lugares:", lugaresError);
+        return;
+      }
+
+      if (lugaresData && lugaresData.length > 0) {
+        const lugaresList = lugaresData.map((item) => item.lugar).sort();
+        setLugares(lugaresList);
+      } else {
+        setLugares([]);
+      }
+    } catch (error) {
+      console.error("Error loading lugares:", error);
+      setLugares([]);
+    }
+  };
+
   const loadOptions = async () => {
-    if (!selectedRole) return;
+    if (!selectedRole) {
+      console.log("loadOptions: No selectedRole, returning early");
+      return;
+    }
+    
+    console.log("loadOptions: Starting to load options for role:", selectedRole);
     
     try {
       // Load options from tdt_options filtered by role
@@ -202,66 +242,69 @@ function CreateSessionPageContent() {
         return;
       }
 
+      console.log("loadOptions: Raw options data from database:", optionsData);
+      console.log("loadOptions: Number of options:", optionsData?.length || 0);
+
       if (!optionsData || optionsData.length === 0) {
+        console.log("loadOptions: No options data, setting empty cascading options");
         setCascadingOptions({});
-        setFirstLevelOptions([]);
         return;
       }
 
-      // Build cascading structure: lugar -> canal -> descripcion
+      // Build cascading structure: canal -> descripcion
+      // Note: lugar is completely independent and comes from tdt_lugar table
+      // The cascading structure is used for canal -> descripcion only
       const cascading: CascadingOptions = {};
-      const firstLevelSet = new Set<string>();
 
-      optionsData.forEach((option) => {
+      optionsData.forEach((option, index) => {
         const canal = option.canal;
-        const lugar = option.lugar;
         const descripcion = option.descripción;
-
-        // Skip if no lugar (first level is required for new structure)
-        // But handle cases where lugar might be empty by using a placeholder
-        const lugarKey = lugar || "Sin lugar";
         
-        firstLevelSet.add(lugarKey);
+        console.log(`loadOptions: Processing option ${index}:`, { canal, descripcion, fullOption: option });
 
-        if (!cascading[lugarKey]) {
-          cascading[lugarKey] = {};
-        }
-
-        // If canal exists, add it as second level
+        // If canal exists, add it to the structure
         if (canal) {
-          if (!cascading[lugarKey][canal]) {
-            cascading[lugarKey][canal] = [];
+          // Initialize the canal entry if it doesn't exist
+          if (!cascading[canal]) {
+            cascading[canal] = [];
+            console.log(`loadOptions: Created new canal entry: ${canal}`);
           }
-
-          // If descripcion exists, add it as third level
-          if (descripcion) {
-            if (!cascading[lugarKey][canal].includes(descripcion)) {
-              cascading[lugarKey][canal].push(descripcion);
-            }
+          
+          // If descripcion exists, add it to the canal's descripciones array
+          if (descripcion && !cascading[canal].includes(descripcion)) {
+            cascading[canal].push(descripcion);
+            console.log(`loadOptions: Added descripcion "${descripcion}" to canal "${canal}"`);
           }
+          // Note: Even if there's no descripcion, the canal is still added to the structure
+          // so it will appear in the dropdown
         } else if (descripcion) {
-          // If no canal but has descripcion, treat descripcion as third level
-          // Use a special placeholder "Sin canal" for the second level
+          // If no canal but has descripcion, use a placeholder "Sin canal"
           const placeholderCanal = "Sin canal";
-          if (!cascading[lugarKey][placeholderCanal]) {
-            cascading[lugarKey][placeholderCanal] = [];
+          if (!cascading[placeholderCanal]) {
+            cascading[placeholderCanal] = [];
+            console.log(`loadOptions: Created placeholder canal entry: ${placeholderCanal}`);
           }
-          if (!cascading[lugarKey][placeholderCanal].includes(descripcion)) {
-            cascading[lugarKey][placeholderCanal].push(descripcion);
+          
+          if (!cascading[placeholderCanal].includes(descripcion)) {
+            cascading[placeholderCanal].push(descripcion);
+            console.log(`loadOptions: Added descripcion "${descripcion}" to placeholder canal`);
           }
+        } else {
+          console.log(`loadOptions: Option ${index} has neither canal nor descripcion, skipping`);
         }
       });
 
+      console.log("loadOptions: Final cascading structure:", cascading);
+      console.log("loadOptions: Canal keys:", Object.keys(cascading));
       setCascadingOptions(cascading);
-      setFirstLevelOptions(Array.from(firstLevelSet).sort());
     } catch (error) {
       console.error("Error loading options:", error);
       setCascadingOptions({});
-      setFirstLevelOptions([]);
     }
   };
 
   const loadAgencyCode = async (agencySlug: string, formattedAgency: string) => {
+    console.log("loadAgencyCode: Starting", { agencySlug, formattedAgency });
     try {
       // Load tdt_agencias and lista_agencias to find the agency code
       const { data: tdtAgenciasData, error: tdtAgenciasError } = await supabase
@@ -273,52 +316,152 @@ function CreateSessionPageContent() {
         return;
       }
 
-      if (!tdtAgenciasData) return;
+      console.log("loadAgencyCode: tdt_agencias data", tdtAgenciasData);
+
+      if (!tdtAgenciasData) {
+        console.log("loadAgencyCode: No tdt_agencias data");
+        return;
+      }
 
       // Find the agency that matches the formatted name
       const normalizedSlug = agencySlug.toLowerCase();
+      console.log("loadAgencyCode: Looking for match", { normalizedSlug, formattedAgency });
 
       for (const tdtAgencia of tdtAgenciasData) {
         const listaAgencia = tdtAgencia.lista_agencias as ListaAgencia | null;
         const agencyName = listaAgencia?.DESSUCAGE || "";
+        const codSucAge = listaAgencia?.CODSUCAGE;
         
         // Check if the agency name matches (case-insensitive)
         const normalizedAgencyName = agencyName.toLowerCase();
         const normalizedAgencySlug = normalizedAgencyName.replace(/\s+/g, "-");
         
+        console.log("loadAgencyCode: Checking", {
+          agencyName,
+          codSucAge,
+          tdtAgenciaAgencia: tdtAgencia.agencia,
+          normalizedAgencyName,
+          normalizedAgencySlug,
+          matchesFormatted: normalizedAgencyName === formattedAgency.toLowerCase(),
+          matchesSlug: normalizedAgencySlug === normalizedSlug,
+        });
+        
         if (
           normalizedAgencyName === formattedAgency.toLowerCase() ||
           normalizedAgencySlug === normalizedSlug
         ) {
-          setAgencyCode(tdtAgencia.agencia);
+          // Use CODSUCAGE directly as it's the primary key
+          const agencyCodeValue = codSucAge ?? tdtAgencia.agencia;
+          console.log("loadAgencyCode: Match found! Setting agency code to", agencyCodeValue, "(CODSUCAGE)");
+          setAgencyCode(agencyCodeValue);
           return;
         }
       }
+      
+      console.log("loadAgencyCode: No matching agency found");
     } catch (error) {
       console.error("Error loading agency code:", error);
     }
   };
 
   const loadSessions = async () => {
-    if (!agencyCode || !date || !selectedRole) return;
+    if (!agencyCode || !date || !selectedRole) {
+      console.log("loadSessions: Missing required values", { agencyCode, date, selectedRole });
+      return;
+    }
+
+    console.log("loadSessions: Starting to load sessions", { agencyCode, date, selectedRole });
 
     try {
       setIsLoadingSessions(true);
 
-      // Parse the date and create date range for the day in Peruvian timezone
-      // Format timestamps with timezone for timestamptz columns
-      const startOfDay = `${date}T00:00:00.000-05:00`;
-      const endOfDay = `${date}T23:59:59.999-05:00`;
+      // Parse the date and create date range for the day
+      // created_at is stored in UTC, so we need to account for timezone
+      // Peruvian timezone is UTC-5, so we need to query a wider range
+      // Start: date at 00:00:00 in Peru = date-1 at 19:00:00 UTC (if date is in Peru)
+      // End: date at 23:59:59 in Peru = date+1 at 04:59:59 UTC
+      // But to be safe, let's query the entire day in both timezones
+      const startOfDayPeru = `${date}T00:00:00.000-05:00`;
+      const endOfDayPeru = `${date}T23:59:59.999-05:00`;
+      // Also try UTC range (5 hours ahead)
+      const startOfDayUTC = `${date}T05:00:00.000Z`; // 00:00 Peru = 05:00 UTC
+      const endOfDayUTC = `${date}T23:59:59.999Z`; // This covers until 18:59 Peru time
+      const endOfDayUTCNext = `${date}T23:59:59.999Z`; // Actually need next day 04:59:59 UTC
 
-      // Load sessions for the date, agency, and role
-      const { data: sessionsData, error: sessionsError } = await supabase
+      console.log("loadSessions: Query parameters", {
+        agencia: agencyCode,
+        rol: selectedRole,
+        date,
+        startOfDayPeru,
+        endOfDayPeru,
+        startOfDayUTC,
+      });
+
+      // Try querying with Peruvian timezone first
+      let { data: sessionsData, error: sessionsError } = await supabase
         .from("tdt_sessions")
         .select("*")
         .eq("agencia", agencyCode)
         .eq("rol", selectedRole)
-        .gte("inicio", startOfDay)
-        .lte("inicio", endOfDay)
-        .order("inicio", { ascending: false });
+        .gte("created_at", startOfDayPeru)
+        .lte("created_at", endOfDayPeru)
+        .order("created_at", { ascending: false });
+
+      console.log("loadSessions: Query result (Peru timezone)", { sessionsData: sessionsData?.length || 0, error: sessionsError });
+
+      // If no results, try with a wider range or without timezone
+      if ((!sessionsData || sessionsData.length === 0) && !sessionsError) {
+        console.log("loadSessions: Trying query with date only (no time filter)");
+        // Try querying all sessions for the agency/role and filter by date in JavaScript
+        const { data: allSessionsData, error: allSessionsError } = await supabase
+          .from("tdt_sessions")
+          .select("*")
+          .eq("agencia", agencyCode)
+          .eq("rol", selectedRole)
+          .order("created_at", { ascending: false });
+
+        if (!allSessionsError && allSessionsData) {
+          console.log("loadSessions: All sessions for agency/role", allSessionsData.length);
+          // Filter by date in JavaScript
+          // Sessions are stored in UTC, so we need to check both UTC date and Peru timezone date
+          sessionsData = allSessionsData.filter((session) => {
+            if (!session.created_at) return false;
+            const sessionDate = new Date(session.created_at);
+            
+            // Check UTC date (how it's stored)
+            const sessionDateUTC = sessionDate.toISOString().split('T')[0];
+            
+            // Check Peruvian timezone date (how user sees it)
+            const sessionDatePeru = sessionDate.toLocaleDateString('en-CA', { 
+              timeZone: 'America/Lima',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            });
+            
+            // Also check if the session date in UTC could represent the target date in Peru
+            // A session created on date-1 in UTC (late evening) might be date in Peru
+            // A session created on date in UTC (early morning) might be date-1 in Peru
+            // So we check if either matches
+            const matches = sessionDateUTC === date || sessionDatePeru === date;
+            
+            console.log("loadSessions: Comparing dates", { 
+              sessionDate: session.created_at, 
+              sessionDateUTC, 
+              sessionDatePeru, 
+              targetDate: date,
+              matches
+            });
+            
+            return matches;
+          });
+          console.log("loadSessions: Filtered sessions by date", sessionsData.length);
+        } else {
+          sessionsError = allSessionsError;
+        }
+      }
+
+      console.log("loadSessions: Query result", { sessionsData, error: sessionsError });
 
       if (sessionsError) {
         console.error("Error loading sessions:", sessionsError);
@@ -326,9 +469,13 @@ function CreateSessionPageContent() {
       }
 
       if (!sessionsData || sessionsData.length === 0) {
+        console.log("loadSessions: No sessions found for the given criteria");
         setSessionCards([]);
+        setIsLoadingSessions(false);
         return;
       }
+
+      console.log("loadSessions: Found sessions", sessionsData.length);
 
       // Load observations for all sessions
       const sessionIds = sessionsData.map((s) => s.id);
@@ -371,6 +518,7 @@ function CreateSessionPageContent() {
         };
       });
 
+      console.log("loadSessions: Transformed cards", cards.length);
       setSessionCards(cards);
       
       // Set finished cards
@@ -849,10 +997,9 @@ function CreateSessionPageContent() {
 
   const handleDialogFirstDropdownChange = (value: string) => {
     setDialogFormData({
+      ...dialogFormData,
       firstDropdown: value,
-      secondDropdown: "", // Reset dependent dropdowns
-      thirdDropdown: "",
-      startTime: dialogFormData.startTime, // Preserve start time
+      // Don't reset second/third dropdowns since lugar is independent
     });
   };
 
@@ -963,44 +1110,30 @@ function CreateSessionPageContent() {
     });
   };
 
-  // Get second level options based on first dropdown selection
-  const getSecondLevelOptions = (firstValue: string): string[] => {
-    if (!firstValue || !cascadingOptions[firstValue]) return [];
-    return Object.keys(cascadingOptions[firstValue]).sort();
-  };
+  // Get second level options (canal) - independent of lugar selection
+  const getSecondLevelOptions = useMemo(() => {
+    const options = Object.keys(cascadingOptions).sort();
+    console.log("Computing second level options from cascadingOptions:", cascadingOptions);
+    console.log("Result:", options);
+    return options;
+  }, [cascadingOptions]);
 
-  // Get third level options based on first and second dropdown selections
-  const getThirdLevelOptions = (
-    firstValue: string,
-    secondValue: string
-  ): string[] => {
-    if (
-      !firstValue ||
-      !secondValue ||
-      !cascadingOptions[firstValue] ||
-      !cascadingOptions[firstValue][secondValue]
-    ) {
+  // Get third level options (descripcion) based on canal selection
+  const getThirdLevelOptions = (canalValue: string): string[] => {
+    if (!canalValue || !cascadingOptions[canalValue]) {
       return [];
     }
-    return cascadingOptions[firstValue][secondValue];
+    // Get descripciones directly for the selected canal
+    return cascadingOptions[canalValue] || [];
   };
 
-  // Get dialog second level options
-  const dialogSecondLevelOptions = useMemo(() => {
-    return getSecondLevelOptions(dialogFormData.firstDropdown);
-  }, [dialogFormData.firstDropdown, cascadingOptions]);
+  // Get dialog second level options (canal) - use the memoized value directly
+  const dialogSecondLevelOptions = getSecondLevelOptions;
 
-  // Get dialog third level options
+  // Get dialog third level options (descripcion)
   const dialogThirdLevelOptions = useMemo(() => {
-    return getThirdLevelOptions(
-      dialogFormData.firstDropdown,
-      dialogFormData.secondDropdown
-    );
-  }, [
-    dialogFormData.firstDropdown,
-    dialogFormData.secondDropdown,
-    cascadingOptions,
-  ]);
+    return getThirdLevelOptions(dialogFormData.secondDropdown);
+  }, [dialogFormData.secondDropdown, cascadingOptions]);
 
   if (authLoading || isLoadingSessions) {
     return <FullPageLoading text="Cargando..." />;
@@ -1377,16 +1510,16 @@ function CreateSessionPageContent() {
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {firstLevelOptions.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
+                  {lugares.map((lugar) => (
+                    <SelectItem key={lugar} value={lugar}>
+                      {lugar}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Second Dropdown - Canal */}
+            {/* Second Dropdown - Canal (Independent of Lugar) */}
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 block">
                 Canal *
@@ -1394,17 +1527,23 @@ function CreateSessionPageContent() {
               <Select
                 value={dialogFormData.secondDropdown}
                 onValueChange={handleDialogSecondDropdownChange}
-                disabled={!dialogFormData.firstDropdown}
+                // Canal is completely independent of lugar selection
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {dialogSecondLevelOptions.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
+                  {dialogSecondLevelOptions && dialogSecondLevelOptions.length > 0 ? (
+                    dialogSecondLevelOptions.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                      {selectedRole ? "Cargando opciones..." : "Selecciona un rol primero"}
+                    </div>
+                  )}
                 </SelectContent>
               </Select>
             </div>

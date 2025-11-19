@@ -319,6 +319,18 @@ export type Database = {
           },
         ]
       }
+      tdt_lugar: {
+        Row: {
+          lugar: string
+        }
+        Insert: {
+          lugar: string
+        }
+        Update: {
+          lugar?: string
+        }
+        Relationships: []
+      }
       tdt_observations: {
         Row: {
           canal: string | null
@@ -327,7 +339,7 @@ export type Database = {
           fin: string | null
           id: number
           inicio: string | null
-          lugar: string | null
+          lugar: string
           tdt_session: number
         }
         Insert: {
@@ -337,7 +349,7 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
-          lugar?: string | null
+          lugar: string
           tdt_session: number
         }
         Update: {
@@ -347,10 +359,17 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
-          lugar?: string | null
+          lugar?: string
           tdt_session?: number
         }
         Relationships: [
+          {
+            foreignKeyName: "tdt_observations_lugar_fkey"
+            columns: ["lugar"]
+            isOneToOne: false
+            referencedRelation: "tdt_lugar"
+            referencedColumns: ["lugar"]
+          },
           {
             foreignKeyName: "tdt_observations_tdt_session_fkey"
             columns: ["tdt_session"]
@@ -365,21 +384,18 @@ export type Database = {
           canal: string | null
           descripción: string | null
           id: string
-          lugar: string | null
           rol: string | null
         }
         Insert: {
           canal?: string | null
           descripción?: string | null
           id?: string
-          lugar?: string | null
           rol?: string | null
         }
         Update: {
           canal?: string | null
           descripción?: string | null
           id?: string
-          lugar?: string | null
           rol?: string | null
         }
         Relationships: []
