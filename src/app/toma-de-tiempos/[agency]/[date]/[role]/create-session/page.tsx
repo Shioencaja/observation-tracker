@@ -100,6 +100,10 @@ function CreateSessionPageContent() {
     startTime: null,
     comentarios: "",
   });
+  const [agencyObservation, setAgencyObservation] = useState<string>("");
+  const [agencyObservationId, setAgencyObservationId] = useState<number | null>(null);
+  const [isSavingAgencyObservation, setIsSavingAgencyObservation] = useState(false);
+  const [isAgencyObservationDialogOpen, setIsAgencyObservationDialogOpen] = useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -125,7 +129,10 @@ function CreateSessionPageContent() {
   // Helper to check if the last observation in a card has started
   const canAddObservation = (cardId: string): boolean => {
     const card = sessionCards.find((c) => c.id === cardId);
-    if (!card || card.observations.length === 0) return true; // Can add first observation
+    if (!card) return false;
+    // Cannot add observations if session is finished
+    if (finishedCards.has(cardId)) return false;
+    if (card.observations.length === 0) return true; // Can add first observation
     const lastObservation = card.observations[card.observations.length - 1];
     return lastObservation.startTime !== null;
   };
@@ -189,6 +196,7 @@ function CreateSessionPageContent() {
   useEffect(() => {
     if (agencyCode && date && user && selectedRole) {
       loadSessions();
+      loadAgencyObservation();
     }
   }, [agencyCode, date, user, selectedRole]);
 
@@ -536,6 +544,156 @@ function CreateSessionPageContent() {
       console.error("Error loading sessions:", error);
     } finally {
       setIsLoadingSessions(false);
+    }
+  };
+
+  const loadAgencyObservation = async () => {
+    if (!agencyCode || !date || !selectedRole || !user?.email) {
+      return;
+    }
+
+    try {
+      // Query for existing observation for this agency, date, and role
+      // We need to check if there's an observation for this date
+      // The date is in the URL format (YYYY-MM-DD), but created_at is a timestamp
+      // We'll query all observations for this agency/role and filter by date
+      const { data: observationsData, error: observationsError } = await supabase
+        .from("tdt_agencia_observation")
+        .select("*")
+        .eq("CODSUCAGE", agencyCode)
+        .eq("rol", selectedRole)
+        .eq("created_by", user.email)
+        .order("created_at", { ascending: false });
+
+      if (observationsError) {
+        console.error("Error loading agency observation:", observationsError);
+        return;
+      }
+
+      if (observationsData && observationsData.length > 0) {
+        // Filter by date in JavaScript (similar to how we filter sessions)
+        const matchingObservation = observationsData.find((obs) => {
+          if (!obs.created_at) return false;
+          const obsDate = new Date(obs.created_at);
+          const obsDatePeru = obsDate.toLocaleDateString('en-CA', {
+            timeZone: 'America/Lima',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+          });
+          return obsDatePeru === date;
+        });
+
+        if (matchingObservation) {
+          setAgencyObservation(matchingObservation.observaciones || "");
+          setAgencyObservationId(matchingObservation.id);
+        } else {
+          setAgencyObservation("");
+          setAgencyObservationId(null);
+        }
+      } else {
+        setAgencyObservation("");
+        setAgencyObservationId(null);
+      }
+    } catch (error) {
+      console.error("Error loading agency observation:", error);
+    }
+  };
+
+  const saveAgencyObservation = async () => {
+    if (!agencyCode || !date || !selectedRole || !user?.email) {
+      return;
+    }
+
+    try {
+      setIsSavingAgencyObservation(true);
+
+      if (agencyObservationId) {
+        // Update existing observation
+        const { error: updateError } = await supabase
+          .from("tdt_agencia_observation")
+          .update({
+            observaciones: agencyObservation || null,
+          })
+          .eq("id", agencyObservationId);
+
+        if (updateError) {
+          console.error("Error updating agency observation:", updateError);
+          alert("Error al guardar las observaciones");
+          return;
+        }
+      } else {
+        // Check if there's already an observation for this date before creating
+        // This prevents duplicates if the date filter didn't catch it
+        const { data: existingObservations, error: checkError } = await supabase
+          .from("tdt_agencia_observation")
+          .select("*")
+          .eq("CODSUCAGE", agencyCode)
+          .eq("rol", selectedRole)
+          .eq("created_by", user.email)
+          .order("created_at", { ascending: false });
+
+        if (!checkError && existingObservations) {
+          // Filter by date in JavaScript
+          const matchingObservation = existingObservations.find((obs) => {
+            if (!obs.created_at) return false;
+            const obsDate = new Date(obs.created_at);
+            const obsDatePeru = obsDate.toLocaleDateString('en-CA', {
+              timeZone: 'America/Lima',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit'
+            });
+            return obsDatePeru === date;
+          });
+
+          if (matchingObservation) {
+            // Update the existing observation instead of creating a new one
+            const { error: updateError } = await supabase
+              .from("tdt_agencia_observation")
+              .update({
+                observaciones: agencyObservation || null,
+              })
+              .eq("id", matchingObservation.id);
+
+            if (updateError) {
+              console.error("Error updating agency observation:", updateError);
+              alert("Error al guardar las observaciones");
+              return;
+            }
+
+            setAgencyObservationId(matchingObservation.id);
+            return;
+          }
+        }
+
+        // Create new observation if none exists for this date
+        const { data: newObservation, error: insertError } = await supabase
+          .from("tdt_agencia_observation")
+          .insert({
+            CODSUCAGE: agencyCode,
+            rol: selectedRole,
+            observaciones: agencyObservation || null,
+            created_by: user.email,
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error("Error creating agency observation:", insertError);
+          alert("Error al guardar las observaciones");
+          return;
+        }
+
+        if (newObservation) {
+          setAgencyObservationId(newObservation.id);
+        }
+      }
+    } catch (error) {
+      console.error("Error saving agency observation:", error);
+      alert("Error al guardar las observaciones");
+    } finally {
+      setIsSavingAgencyObservation(false);
     }
   };
 
@@ -1322,23 +1480,21 @@ function CreateSessionPageContent() {
                                   </div>
                                 )}
                                 <div className="flex items-center gap-2">
-                                  {!observation.isFinished && !isFinished && (
-                                    <Button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleEditObservation(
-                                          card.id,
-                                          observation.id
-                                        );
-                                      }}
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                    >
-                                      <Edit size={14} className="mr-1" />
-                                      Editar
-                                    </Button>
-                                  )}
+                                  <Button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleEditObservation(
+                                        card.id,
+                                        observation.id
+                                      );
+                                    }}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                  >
+                                    <Edit size={14} className="mr-1" />
+                                    Editar
+                                  </Button>
                                   {!observation.isFinished &&
                                     observation.startTime && (
                                       <Button
@@ -1365,7 +1521,6 @@ function CreateSessionPageContent() {
                                     </Badge>
                                   )}
                                   {card.observations.length > 1 &&
-                                    !isFinished &&
                                     !observation.isFinished && (
                                       <Button
                                         onClick={(e) => {
@@ -1387,37 +1542,35 @@ function CreateSessionPageContent() {
                             </div>
                           );
                         })}
-                        {!isFinished && (
-                          <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-2">
+                          <Button
+                            onClick={() => handleAddObservation(card.id)}
+                            variant="outline"
+                            className="w-full border-dashed"
+                            disabled={!canAddObservation(card.id)}
+                          >
+                            <Plus size={16} className="mr-2" />
+                            Agregar Observación
+                          </Button>
+                          {card.observations.length === 0 && !isFinished && (
                             <Button
-                              onClick={() => handleAddObservation(card.id)}
+                              onClick={() => handleRemoveCard(card.id)}
                               variant="outline"
-                              className="w-full border-dashed"
-                              disabled={!canAddObservation(card.id)}
+                              className="w-full border-dashed text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
-                              <Plus size={16} className="mr-2" />
-                              Agregar Observación
+                              Eliminar Sesión
                             </Button>
-                            {card.observations.length === 0 && (
-                              <Button
-                                onClick={() => handleRemoveCard(card.id)}
-                                variant="outline"
-                                className="w-full border-dashed text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                Eliminar Sesión
-                              </Button>
-                            )}
-                            {card.observations.length > 0 && (
-                              <Button
-                                onClick={() => handleFinishSession(card.id)}
-                                className="w-full"
-                                disabled={!canFinishCard(card.id)}
-                              >
-                                Finalizar Sesión
-                              </Button>
-                            )}
-                          </div>
-                        )}
+                          )}
+                          {card.observations.length > 0 && !isFinished && (
+                            <Button
+                              onClick={() => handleFinishSession(card.id)}
+                              className="w-full"
+                              disabled={!canFinishCard(card.id)}
+                            >
+                              Finalizar Sesión
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </CardContent>
                   )}
@@ -1437,17 +1590,28 @@ function CreateSessionPageContent() {
         </div>
       </div>
 
-      {/* Fixed bottom button */}
+      {/* Fixed bottom buttons */}
       <div className="bg-white border-t border-gray-200 shadow-lg z-50">
         <div className="max-w-4xl mx-auto px-6 py-4">
-          <Button
-            onClick={handleCreateSession}
-            className="w-full bg-gray-900 hover:bg-gray-800 text-white"
-            size="lg"
-          >
-            <Plus size={16} className="mr-2" />
-            Crear Sesión
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              onClick={handleCreateSession}
+              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
+              size="lg"
+            >
+              <Plus size={16} className="mr-2" />
+              Crear Sesión
+            </Button>
+            <Button
+              onClick={() => setIsAgencyObservationDialogOpen(true)}
+              variant="outline"
+              size="lg"
+              className="flex-1 text-gray-700 hover:text-gray-900"
+            >
+              <Edit size={16} className="mr-2" />
+              Observaciones de la Agencia
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -1571,14 +1735,60 @@ function CreateSessionPageContent() {
             )}
             <Button
               onClick={handleSaveObservation}
-              disabled={
-                !dialogFormData.firstDropdown ||
-                !dialogFormData.secondDropdown ||
-                !dialogFormData.thirdDropdown
-              }
               className="w-full sm:w-auto bg-gray-900 hover:bg-gray-800 text-white"
             >
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Agency Observation Dialog */}
+      <Dialog
+        open={isAgencyObservationDialogOpen}
+        onOpenChange={setIsAgencyObservationDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Observaciones de la Agencia</DialogTitle>
+            <DialogDescription>
+              Agrega observaciones sobre esta agencia para la fecha y rol seleccionados
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Textarea
+              value={agencyObservation}
+              onChange={(e) => setAgencyObservation(e.target.value)}
+              placeholder="Agregar observaciones sobre esta agencia y fecha..."
+              className="w-full min-h-[200px]"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => setIsAgencyObservationDialogOpen(false)}
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={async () => {
+                await saveAgencyObservation();
+                setIsAgencyObservationDialogOpen(false);
+              }}
+              disabled={isSavingAgencyObservation}
+              className="bg-gray-900 hover:bg-gray-800 text-white"
+            >
+              {isSavingAgencyObservation ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save size={16} className="mr-2" />
+                  Guardar Observaciones
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

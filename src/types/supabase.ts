@@ -293,6 +293,41 @@ export type Database = {
           },
         ]
       }
+      tdt_agencia_observation: {
+        Row: {
+          CODSUCAGE: number | null
+          created_at: string
+          created_by: string | null
+          id: number
+          observaciones: string | null
+          rol: string | null
+        }
+        Insert: {
+          CODSUCAGE?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          observaciones?: string | null
+          rol?: string | null
+        }
+        Update: {
+          CODSUCAGE?: number | null
+          created_at?: string
+          created_by?: string | null
+          id?: number
+          observaciones?: string | null
+          rol?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tdt_agencia_observation_CODSUCAGE_fkey"
+            columns: ["CODSUCAGE"]
+            isOneToOne: false
+            referencedRelation: "lista_agencias"
+            referencedColumns: ["CODSUCAGE"]
+          },
+        ]
+      }
       tdt_agencias: {
         Row: {
           agencia: number | null
@@ -313,7 +348,7 @@ export type Database = {
           {
             foreignKeyName: "tdt_agencias_agencia_fkey"
             columns: ["agencia"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "lista_agencias"
             referencedColumns: ["CODSUCAGE"]
           },
