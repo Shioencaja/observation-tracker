@@ -17,13 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -1135,6 +1129,28 @@ function CreateSessionPageContent() {
     return getThirdLevelOptions(dialogFormData.secondDropdown);
   }, [dialogFormData.secondDropdown, cascadingOptions]);
 
+  // Convert arrays to ComboboxOption format
+  const lugarOptions: ComboboxOption[] = useMemo(() => {
+    return lugares.map((lugar) => ({
+      value: lugar,
+      label: lugar,
+    }));
+  }, [lugares]);
+
+  const canalOptions: ComboboxOption[] = useMemo(() => {
+    return dialogSecondLevelOptions.map((canal) => ({
+      value: canal,
+      label: canal,
+    }));
+  }, [dialogSecondLevelOptions]);
+
+  const descripcionOptions: ComboboxOption[] = useMemo(() => {
+    return dialogThirdLevelOptions.map((descripcion) => ({
+      value: descripcion,
+      label: descripcion,
+    }));
+  }, [dialogThirdLevelOptions]);
+
   if (authLoading || isLoadingSessions) {
     return <FullPageLoading text="Cargando..." />;
   }
@@ -1502,21 +1518,15 @@ function CreateSessionPageContent() {
               <label className="text-sm font-medium text-gray-700 mb-2 block">
                 Lugar *
               </label>
-              <Select
+              <Combobox
+                options={lugarOptions}
                 value={dialogFormData.firstDropdown}
                 onValueChange={handleDialogFirstDropdownChange}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {lugares.map((lugar) => (
-                    <SelectItem key={lugar} value={lugar}>
-                      {lugar}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder="Seleccionar lugar..."
+                searchPlaceholder="Buscar lugar..."
+                emptyText="No se encontraron lugares"
+                className="w-full"
+              />
             </div>
 
             {/* Second Dropdown - Canal (Independent of Lugar) */}
@@ -1524,28 +1534,28 @@ function CreateSessionPageContent() {
               <label className="text-sm font-medium text-gray-700 mb-2 block">
                 Canal *
               </label>
-              <Select
+              <Combobox
+                options={canalOptions}
                 value={dialogFormData.secondDropdown}
                 onValueChange={handleDialogSecondDropdownChange}
-                // Canal is completely independent of lugar selection
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {dialogSecondLevelOptions && dialogSecondLevelOptions.length > 0 ? (
-                    dialogSecondLevelOptions.map((option) => (
-                      <SelectItem key={option} value={option}>
-                        {option}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                      {selectedRole ? "Cargando opciones..." : "Selecciona un rol primero"}
-                    </div>
-                  )}
-                </SelectContent>
-              </Select>
+                placeholder={
+                  selectedRole
+                    ? canalOptions.length > 0
+                      ? "Seleccionar canal..."
+                      : "Cargando opciones..."
+                    : "Selecciona un rol primero"
+                }
+                searchPlaceholder="Buscar canal..."
+                emptyText={
+                  selectedRole
+                    ? canalOptions.length === 0
+                      ? "Cargando opciones..."
+                      : "No se encontraron canales"
+                    : "Selecciona un rol primero"
+                }
+                disabled={!selectedRole}
+                className="w-full"
+              />
             </div>
 
             {/* Third Dropdown - Descripción */}
@@ -1553,22 +1563,20 @@ function CreateSessionPageContent() {
               <label className="text-sm font-medium text-gray-700 mb-2 block">
                 Descripción *
               </label>
-              <Select
+              <Combobox
+                options={descripcionOptions}
                 value={dialogFormData.thirdDropdown}
                 onValueChange={handleDialogThirdDropdownChange}
+                placeholder="Seleccionar descripción..."
+                searchPlaceholder="Buscar descripción..."
+                emptyText={
+                  dialogFormData.secondDropdown
+                    ? "No se encontraron descripciones"
+                    : "Selecciona un canal primero"
+                }
                 disabled={!dialogFormData.secondDropdown}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {dialogThirdLevelOptions.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                className="w-full"
+              />
             </div>
           </div>
           <DialogFooter className="flex-col-reverse sm:flex-row gap-2">

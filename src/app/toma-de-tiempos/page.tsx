@@ -13,13 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Combobox, ComboboxOption } from "@/components/ui/combobox";
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import type { Database } from "@/types/supabase";
 
@@ -39,6 +33,18 @@ function TomaDeTiemposPageContent() {
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [agencies, setAgencies] = useState<AgencyOption[]>([]);
   const [isLoadingAgencies, setIsLoadingAgencies] = useState(true);
+
+  // Convert agencies to ComboboxOption format
+  const agencyOptions: ComboboxOption[] = agencies.map((agency) => ({
+    value: agency.name,
+    label: agency.name,
+  }));
+
+  // Role options
+  const roleOptions: ComboboxOption[] = [
+    { value: "Guía", label: "Guía" },
+    { value: "Gerente", label: "Gerente" },
+  ];
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -180,28 +186,26 @@ function TomaDeTiemposPageContent() {
             <label className="text-sm font-medium text-gray-700">
               Agencia *
             </label>
-            <Select
-              value={selectedAgency}
-              onValueChange={setSelectedAgency}
-              disabled={agencies.length === 0}
-            >
-              <SelectTrigger className="mt-2 w-full h-11 border-gray-200 focus:border-gray-400 focus:ring-gray-400">
-                <SelectValue
-                  placeholder={
-                    agencies.length === 0
-                      ? "No hay agencias disponibles"
-                      : "Seleccionar agencia..."
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {agencies.map((agency) => (
-                  <SelectItem key={agency.id} value={agency.name}>
-                    {agency.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="mt-2">
+              <Combobox
+                options={agencyOptions}
+                value={selectedAgency}
+                onValueChange={setSelectedAgency}
+                placeholder={
+                  agencies.length === 0
+                    ? "No hay agencias disponibles"
+                    : "Seleccionar agencia..."
+                }
+                searchPlaceholder="Buscar agencia..."
+                emptyText={
+                  agencies.length === 0
+                    ? "No hay agencias disponibles"
+                    : "No se encontraron agencias"
+                }
+                disabled={agencies.length === 0}
+                className="w-full"
+              />
+            </div>
             {agencies.length === 0 && (
               <p className="text-xs text-gray-500 mt-2">
                 No hay agencias configuradas. Ve a Configuración para agregar
@@ -215,18 +219,17 @@ function TomaDeTiemposPageContent() {
             <label className="text-sm font-medium text-gray-700">
               Rol *
             </label>
-            <Select
-              value={selectedRole}
-              onValueChange={setSelectedRole}
-            >
-              <SelectTrigger className="mt-2 w-full h-11 border-gray-200 focus:border-gray-400 focus:ring-gray-400">
-                <SelectValue placeholder="Seleccionar rol..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Guía">Guía</SelectItem>
-                <SelectItem value="Gerente">Gerente</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="mt-2">
+              <Combobox
+                options={roleOptions}
+                value={selectedRole}
+                onValueChange={setSelectedRole}
+                placeholder="Seleccionar rol..."
+                searchPlaceholder="Buscar rol..."
+                emptyText="No se encontraron roles"
+                className="w-full"
+              />
+            </div>
           </div>
 
           {/* Continue Button */}
