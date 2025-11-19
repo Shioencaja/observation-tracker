@@ -48,10 +48,11 @@ export function Combobox({
   const [searchValue, setSearchValue] = React.useState("");
   const [isMobile, setIsMobile] = React.useState(false);
 
-  // Detect mobile on mount and resize
+  // Detect mobile/tablet on mount and resize
   React.useEffect(() => {
     const checkMobile = () => {
-      setIsMobile(window.innerWidth < 640); // sm breakpoint
+      // Use Sheet for mobile and tablet (below lg breakpoint: 1024px)
+      setIsMobile(window.innerWidth < 1024); // lg breakpoint
     };
     checkMobile();
     window.addEventListener("resize", checkMobile);
@@ -138,7 +139,7 @@ export function Combobox({
     </>
   );
 
-  // Use Sheet for mobile, Popover for desktop
+  // Use Sheet for mobile and tablet, Popover for desktop
   if (isMobile) {
     return (
       <Sheet open={open} onOpenChange={setOpen}>
