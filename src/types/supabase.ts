@@ -334,6 +334,7 @@ export type Database = {
       tdt_observations: {
         Row: {
           canal: string | null
+          comentarios: string | null
           created_at: string
           descripcion: string | null
           fin: string | null
@@ -344,6 +345,7 @@ export type Database = {
         }
         Insert: {
           canal?: string | null
+          comentarios?: string | null
           created_at?: string
           descripcion?: string | null
           fin?: string | null
@@ -354,6 +356,7 @@ export type Database = {
         }
         Update: {
           canal?: string | null
+          comentarios?: string | null
           created_at?: string
           descripcion?: string | null
           fin?: string | null
@@ -404,8 +407,8 @@ export type Database = {
         Row: {
           agencia: number | null
           cliente: string | null
-          comentarios: string | null
           created_at: string
+          created_by: string | null
           fin: string | null
           id: number
           inicio: string | null
@@ -414,8 +417,8 @@ export type Database = {
         Insert: {
           agencia?: number | null
           cliente?: string | null
-          comentarios?: string | null
           created_at?: string
+          created_by?: string | null
           fin?: string | null
           id?: number
           inicio?: string | null
@@ -424,8 +427,8 @@ export type Database = {
         Update: {
           agencia?: number | null
           cliente?: string | null
-          comentarios?: string | null
           created_at?: string
+          created_by?: string | null
           fin?: string | null
           id?: number
           inicio?: string | null

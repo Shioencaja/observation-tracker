@@ -46,6 +46,7 @@ interface Observation {
   startTime: string | null; // Maps to inicio
   endTime: string | null; // Maps to fin
   isFinished: boolean;
+  comentarios: string | null; // Maps to comentarios from tdt_observations
 }
 
 // Type for a session card with multiple observations
@@ -56,7 +57,6 @@ interface SessionCard {
   startTime: string | null; // Maps to inicio
   finishTime: string | null; // Maps to fin
   cliente: string | null; // Maps to cliente from tdt_sessions
-  comentarios: string | null; // Maps to comentarios from tdt_sessions
 }
 
 // Cascading options structure from tdt_options
@@ -83,7 +83,6 @@ function CreateSessionPageContent() {
   const [cascadingOptions, setCascadingOptions] = useState<CascadingOptions>({});
   const [lugares, setLugares] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [savingComments, setSavingComments] = useState<Set<string>>(new Set());
   const [editingObservation, setEditingObservation] = useState<{
     cardId: string;
     observationId: string | null;
@@ -93,11 +92,13 @@ function CreateSessionPageContent() {
     secondDropdown: string;
     thirdDropdown: string;
     startTime: string | null;
+    comentarios: string;
   }>({
     firstDropdown: "",
     secondDropdown: "",
     thirdDropdown: "",
     startTime: null,
+    comentarios: "",
   });
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -359,12 +360,12 @@ function CreateSessionPageContent() {
   };
 
   const loadSessions = async () => {
-    if (!agencyCode || !date || !selectedRole) {
-      console.log("loadSessions: Missing required values", { agencyCode, date, selectedRole });
+    if (!agencyCode || !date || !selectedRole || !user?.email) {
+      console.log("loadSessions: Missing required values", { agencyCode, date, selectedRole, userEmail: user?.email });
       return;
     }
 
-    console.log("loadSessions: Starting to load sessions", { agencyCode, date, selectedRole });
+    console.log("loadSessions: Starting to load sessions", { agencyCode, date, selectedRole, userEmail: user.email });
 
     try {
       setIsLoadingSessions(true);
@@ -392,11 +393,13 @@ function CreateSessionPageContent() {
       });
 
       // Try querying with Peruvian timezone first
+      // Filter by user's email to only show sessions created by the current user
       let { data: sessionsData, error: sessionsError } = await supabase
         .from("tdt_sessions")
         .select("*")
         .eq("agencia", agencyCode)
         .eq("rol", selectedRole)
+        .eq("created_by", user.email)
         .gte("created_at", startOfDayPeru)
         .lte("created_at", endOfDayPeru)
         .order("created_at", { ascending: false });
@@ -407,11 +410,13 @@ function CreateSessionPageContent() {
       if ((!sessionsData || sessionsData.length === 0) && !sessionsError) {
         console.log("loadSessions: Trying query with date only (no time filter)");
         // Try querying all sessions for the agency/role and filter by date in JavaScript
+        // Filter by user's email to only show sessions created by the current user
         const { data: allSessionsData, error: allSessionsError } = await supabase
           .from("tdt_sessions")
           .select("*")
           .eq("agencia", agencyCode)
           .eq("rol", selectedRole)
+          .eq("created_by", user.email)
           .order("created_at", { ascending: false });
 
         if (!allSessionsError && allSessionsData) {
@@ -499,6 +504,7 @@ function CreateSessionPageContent() {
           startTime: obs.inicio,
           endTime: obs.fin,
           isFinished: obs.fin !== null,
+          comentarios: obs.comentarios || null,
         }));
 
         return {
@@ -508,7 +514,6 @@ function CreateSessionPageContent() {
           startTime: session.inicio,
           finishTime: session.fin,
           cliente: session.cliente,
-          comentarios: session.comentarios,
         };
       });
 
@@ -556,6 +561,11 @@ function CreateSessionPageContent() {
 
       // Create session in database
       const startTime = getPeruvianTimeISO();
+      if (!user?.email) {
+        alert("Error: No se pudo obtener el email del usuario");
+        return;
+      }
+
       const { data: newSession, error: sessionError } = await supabase
         .from("tdt_sessions")
         .insert({
@@ -563,6 +573,7 @@ function CreateSessionPageContent() {
           rol: selectedRole,
           inicio: startTime,
           fin: null,
+          created_by: user.email,
         })
         .select()
         .single();
@@ -598,7 +609,6 @@ function CreateSessionPageContent() {
         startTime: newSession.inicio,
         finishTime: null,
         cliente: updatedSession?.cliente || cliente,
-        comentarios: updatedSession?.comentarios || null,
       };
       setSessionCards([...sessionCards, newCard]);
 
@@ -609,6 +619,7 @@ function CreateSessionPageContent() {
         secondDropdown: "",
         thirdDropdown: "",
         startTime: startTime, // Set start time when dialog opens
+        comentarios: "",
       });
       setIsDialogOpen(true);
 
@@ -719,7 +730,8 @@ function CreateSessionPageContent() {
       firstDropdown: "",
       secondDropdown: "",
       thirdDropdown: "",
-        startTime: getPeruvianTimeISO(), // Set start time when dialog opens
+      startTime: getPeruvianTimeISO(), // Set start time when dialog opens
+      comentarios: "",
     });
     setIsDialogOpen(true);
   };
@@ -737,6 +749,7 @@ function CreateSessionPageContent() {
         secondDropdown: observation.secondDropdown,
         thirdDropdown: observation.thirdDropdown,
         startTime: observation.startTime, // Keep existing start time when editing
+        comentarios: observation.comentarios || "",
       });
       setIsDialogOpen(true);
     }
@@ -763,6 +776,7 @@ function CreateSessionPageContent() {
             canal: dialogFormData.secondDropdown || null,
             descripcion: dialogFormData.thirdDropdown || null,
             inicio: dialogFormData.startTime || observation.startTime,
+            comentarios: dialogFormData.comentarios || null,
           })
           .eq("id", observation.dbId);
 
@@ -786,6 +800,7 @@ function CreateSessionPageContent() {
                           secondDropdown: dialogFormData.secondDropdown,
                           thirdDropdown: dialogFormData.thirdDropdown,
                           startTime: dialogFormData.startTime || obs.startTime,
+                          comentarios: dialogFormData.comentarios || null,
                         }
                       : obs
                   ),
@@ -807,6 +822,7 @@ function CreateSessionPageContent() {
             descripcion: dialogFormData.thirdDropdown || null,
             inicio: startTime,
             fin: null,
+            comentarios: dialogFormData.comentarios || null,
           })
           .select()
           .single();
@@ -826,6 +842,7 @@ function CreateSessionPageContent() {
           startTime: newObservation.inicio,
           endTime: null,
           isFinished: false,
+          comentarios: dialogFormData.comentarios || null,
         };
 
         // Update local state
@@ -846,6 +863,7 @@ function CreateSessionPageContent() {
         secondDropdown: "",
         thirdDropdown: "",
         startTime: null,
+        comentarios: "",
       });
     } catch (error) {
       console.error("Error saving observation:", error);
@@ -861,6 +879,7 @@ function CreateSessionPageContent() {
       secondDropdown: "",
       thirdDropdown: "",
       startTime: null,
+      comentarios: "",
     });
   };
 
@@ -908,6 +927,7 @@ function CreateSessionPageContent() {
         secondDropdown: "",
         thirdDropdown: "",
         startTime: null,
+        comentarios: "",
       });
     } catch (error) {
       console.error("Error deleting observation:", error);
@@ -1296,6 +1316,11 @@ function CreateSessionPageContent() {
                                     </span>
                                   )}
                                 </div>
+                                {observation.comentarios && (
+                                  <div className="text-xs text-gray-600 mt-1 italic">
+                                    {observation.comentarios}
+                                  </div>
+                                )}
                                 <div className="flex items-center gap-2">
                                   {!observation.isFinished && !isFinished && (
                                     <Button
@@ -1362,71 +1387,6 @@ function CreateSessionPageContent() {
                             </div>
                           );
                         })}
-                        {/* Comments textarea */}
-                        <div className="space-y-2">
-                          <Label htmlFor={`comments-${card.id}`} className="text-sm font-medium">
-                            Comentarios
-                          </Label>
-                          <Textarea
-                            id={`comments-${card.id}`}
-                            placeholder="Agregar comentarios adicionales sobre la sesión..."
-                            value={card.comentarios || ""}
-                            onChange={(e) => {
-                              const newValue = e.target.value;
-                              // Update local state immediately
-                              setSessionCards(
-                                sessionCards.map((c) =>
-                                  c.id === card.id
-                                    ? { ...c, comentarios: newValue }
-                                    : c
-                                )
-                              );
-                            }}
-                            className="min-h-24 resize-y"
-                          />
-                          <Button
-                            onClick={async () => {
-                              if (!card.dbId) return;
-                              setSavingComments((prev) => new Set(prev).add(card.id));
-                              try {
-                                const { error } = await supabase
-                                  .from("tdt_sessions")
-                                  .update({ comentarios: card.comentarios || null })
-                                  .eq("id", card.dbId);
-
-                                if (error) {
-                                  console.error("Error saving comments:", error);
-                                  alert("Error al guardar los comentarios");
-                                }
-                              } catch (error) {
-                                console.error("Error saving comments:", error);
-                                alert("Error al guardar los comentarios");
-                              } finally {
-                                setSavingComments((prev) => {
-                                  const newSet = new Set(prev);
-                                  newSet.delete(card.id);
-                                  return newSet;
-                                });
-                              }
-                            }}
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            disabled={savingComments.has(card.id)}
-                          >
-                            {savingComments.has(card.id) ? (
-                              <>
-                                <Loader2 size={14} className="mr-2 animate-spin" />
-                                Guardando...
-                              </>
-                            ) : (
-                              <>
-                                <Save size={14} className="mr-2" />
-                                Guardar Comentarios
-                              </>
-                            )}
-                          </Button>
-                        </div>
                         {!isFinished && (
                           <div className="flex flex-col gap-2">
                             <Button
@@ -1576,6 +1536,24 @@ function CreateSessionPageContent() {
                 }
                 disabled={!dialogFormData.secondDropdown}
                 className="w-full"
+              />
+            </div>
+
+            {/* Comentarios */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">
+                Comentarios
+              </label>
+              <Textarea
+                value={dialogFormData.comentarios}
+                onChange={(e) =>
+                  setDialogFormData({
+                    ...dialogFormData,
+                    comentarios: e.target.value,
+                  })
+                }
+                placeholder="Agregar comentarios sobre esta observación..."
+                className="w-full min-h-[100px]"
               />
             </div>
           </div>
