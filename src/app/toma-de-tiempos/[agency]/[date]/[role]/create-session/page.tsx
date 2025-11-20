@@ -29,6 +29,7 @@ import {
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type { Database } from "@/types/supabase";
 
 type TdtSession = Database["public"]["Tables"]["tdt_sessions"]["Row"];
@@ -47,6 +48,8 @@ interface Observation {
   endTime: string | null; // Maps to fin
   isFinished: boolean;
   comentarios: string | null; // Maps to comentarios from tdt_observations
+  posicion: string | null; // Maps to posicion from tdt_observations
+  altura: string | null; // Maps to altura from tdt_observations
 }
 
 // Type for a session card with multiple observations
@@ -93,12 +96,16 @@ function CreateSessionPageContent() {
     thirdDropdown: string;
     startTime: string | null;
     comentarios: string;
+    posicion: string;
+    altura: string;
   }>({
     firstDropdown: "",
     secondDropdown: "",
     thirdDropdown: "",
     startTime: null,
     comentarios: "",
+    posicion: "",
+    altura: "",
   });
   const [agencyObservation, setAgencyObservation] = useState<string>("");
   const [agencyObservationId, setAgencyObservationId] = useState<number | null>(null);
@@ -513,6 +520,8 @@ function CreateSessionPageContent() {
           endTime: obs.fin,
           isFinished: obs.fin !== null,
           comentarios: obs.comentarios || null,
+          posicion: obs.posicion || null,
+          altura: obs.altura || null,
         }));
 
         return {
@@ -778,6 +787,8 @@ function CreateSessionPageContent() {
         thirdDropdown: "",
         startTime: startTime, // Set start time when dialog opens
         comentarios: "",
+        posicion: "",
+        altura: "",
       });
       setIsDialogOpen(true);
 
@@ -890,6 +901,8 @@ function CreateSessionPageContent() {
       thirdDropdown: "",
       startTime: getPeruvianTimeISO(), // Set start time when dialog opens
       comentarios: "",
+      posicion: "",
+      altura: "",
     });
     setIsDialogOpen(true);
   };
@@ -908,6 +921,8 @@ function CreateSessionPageContent() {
         thirdDropdown: observation.thirdDropdown,
         startTime: observation.startTime, // Keep existing start time when editing
         comentarios: observation.comentarios || "",
+        posicion: observation.posicion || "",
+        altura: observation.altura || "",
       });
       setIsDialogOpen(true);
     }
@@ -935,6 +950,8 @@ function CreateSessionPageContent() {
             descripcion: dialogFormData.thirdDropdown || null,
             inicio: dialogFormData.startTime || observation.startTime,
             comentarios: dialogFormData.comentarios || null,
+            posicion: dialogFormData.posicion || null,
+            altura: dialogFormData.altura || null,
           })
           .eq("id", observation.dbId);
 
@@ -959,6 +976,8 @@ function CreateSessionPageContent() {
                           thirdDropdown: dialogFormData.thirdDropdown,
                           startTime: dialogFormData.startTime || obs.startTime,
                           comentarios: dialogFormData.comentarios || null,
+                          posicion: dialogFormData.posicion || null,
+                          altura: dialogFormData.altura || null,
                         }
                       : obs
                   ),
@@ -981,6 +1000,8 @@ function CreateSessionPageContent() {
             inicio: startTime,
             fin: null,
             comentarios: dialogFormData.comentarios || null,
+            posicion: dialogFormData.posicion || null,
+            altura: dialogFormData.altura || null,
           })
           .select()
           .single();
@@ -1001,6 +1022,8 @@ function CreateSessionPageContent() {
           endTime: null,
           isFinished: false,
           comentarios: dialogFormData.comentarios || null,
+          posicion: dialogFormData.posicion || null,
+          altura: dialogFormData.altura || null,
         };
 
         // Update local state
@@ -1022,6 +1045,8 @@ function CreateSessionPageContent() {
         thirdDropdown: "",
         startTime: null,
         comentarios: "",
+        posicion: "",
+        altura: "",
       });
     } catch (error) {
       console.error("Error saving observation:", error);
@@ -1038,6 +1063,8 @@ function CreateSessionPageContent() {
       thirdDropdown: "",
       startTime: null,
       comentarios: "",
+      posicion: "",
+      altura: "",
     });
   };
 
@@ -1086,6 +1113,8 @@ function CreateSessionPageContent() {
         thirdDropdown: "",
         startTime: null,
         comentarios: "",
+        posicion: "",
+        altura: "",
       });
     } catch (error) {
       console.error("Error deleting observation:", error);
@@ -1171,6 +1200,9 @@ function CreateSessionPageContent() {
     setDialogFormData({
       ...dialogFormData,
       firstDropdown: value,
+      // Clear posicion and altura when lugar changes
+      posicion: "",
+      altura: "",
       // Don't reset second/third dropdowns since lugar is independent
     });
   };
@@ -1187,6 +1219,22 @@ function CreateSessionPageContent() {
     setDialogFormData({
       ...dialogFormData,
       thirdDropdown: value,
+    });
+  };
+
+  const handleDialogPosicionChange = (value: string) => {
+    setDialogFormData({
+      ...dialogFormData,
+      posicion: value,
+      // Clear altura when posicion changes (unless it's "Sentado")
+      altura: value === "Sentado" ? dialogFormData.altura : "",
+    });
+  };
+
+  const handleDialogAlturaChange = (value: string) => {
+    setDialogFormData({
+      ...dialogFormData,
+      altura: value,
     });
   };
 
@@ -1473,6 +1521,16 @@ function CreateSessionPageContent() {
                                       Fin: {formatTime(observation.endTime)}
                                     </span>
                                   )}
+                                  {observation.posicion && (
+                                    <span className="text-xs text-gray-500">
+                                      Posición: {observation.posicion}
+                                    </span>
+                                  )}
+                                  {observation.altura && (
+                                    <span className="text-xs text-gray-500">
+                                      Altura: {observation.altura}
+                                    </span>
+                                  )}
                                 </div>
                                 {observation.comentarios && (
                                   <div className="text-xs text-gray-600 mt-1 italic">
@@ -1592,15 +1650,15 @@ function CreateSessionPageContent() {
 
       {/* Fixed bottom buttons */}
       <div className="bg-white border-t border-gray-200 shadow-lg z-50">
-        <div className="max-w-4xl mx-auto px-6 py-4">
-          <div className="flex gap-3">
+        <div className="max-w-4xl mx-auto px-2 sm:px-6 py-4">
+          <div className="flex gap-2 sm:gap-3">
             <Button
               onClick={handleCreateSession}
               className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
               size="lg"
             >
-              <Plus size={16} className="mr-2" />
-              Crear Sesión
+              <Plus size={14} className="sm:size-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="text-xs sm:text-base">Crear Sesión</span>
             </Button>
             <Button
               onClick={() => setIsAgencyObservationDialogOpen(true)}
@@ -1608,8 +1666,8 @@ function CreateSessionPageContent() {
               size="lg"
               className="flex-1 text-gray-700 hover:text-gray-900"
             >
-              <Edit size={16} className="mr-2" />
-              Observaciones de la Agencia
+              <Edit size={14} className="sm:size-4 mr-1 sm:mr-2 shrink-0" />
+              <span className="text-xs sm:text-base">Observaciones</span>
             </Button>
           </div>
         </div>
@@ -1652,6 +1710,60 @@ function CreateSessionPageContent() {
                 className="w-full"
               />
             </div>
+
+            {/* Posicion Radio Group - Only show when Lugar is "Mesa de Servicio" */}
+            {dialogFormData.firstDropdown === "Mesa de Servicio" && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                  Posición
+                </label>
+                <RadioGroup
+                  value={dialogFormData.posicion}
+                  onValueChange={handleDialogPosicionChange}
+                  className="flex gap-6"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Parado" id="posicion-parado" />
+                    <Label htmlFor="posicion-parado" className="font-normal cursor-pointer">
+                      Parado
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Sentado" id="posicion-sentado" />
+                    <Label htmlFor="posicion-sentado" className="font-normal cursor-pointer">
+                      Sentado
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
+
+            {/* Altura Radio Group - Only show when Posicion is "Sentado" */}
+            {dialogFormData.posicion === "Sentado" && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-2 block">
+                  Altura
+                </label>
+                <RadioGroup
+                  value={dialogFormData.altura}
+                  onValueChange={handleDialogAlturaChange}
+                  className="flex gap-6"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Mesa Alta" id="altura-alta" />
+                    <Label htmlFor="altura-alta" className="font-normal cursor-pointer">
+                      Mesa Alta
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="Mesa Baja" id="altura-baja" />
+                    <Label htmlFor="altura-baja" className="font-normal cursor-pointer">
+                      Mesa Baja
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
 
             {/* Second Dropdown - Canal (Independent of Lugar) */}
             <div>
@@ -1750,7 +1862,7 @@ function CreateSessionPageContent() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Observaciones de la Agencia</DialogTitle>
+            <DialogTitle>Observaciones</DialogTitle>
             <DialogDescription>
               Agrega observaciones sobre esta agencia para la fecha y rol seleccionados
             </DialogDescription>

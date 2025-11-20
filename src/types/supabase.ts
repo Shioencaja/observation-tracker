@@ -368,6 +368,7 @@ export type Database = {
       }
       tdt_observations: {
         Row: {
+          altura: string | null
           canal: string | null
           comentarios: string | null
           created_at: string
@@ -376,9 +377,11 @@ export type Database = {
           id: number
           inicio: string | null
           lugar: string
+          posicion: string | null
           tdt_session: number
         }
         Insert: {
+          altura?: string | null
           canal?: string | null
           comentarios?: string | null
           created_at?: string
@@ -387,9 +390,11 @@ export type Database = {
           id?: number
           inicio?: string | null
           lugar: string
+          posicion?: string | null
           tdt_session: number
         }
         Update: {
+          altura?: string | null
           canal?: string | null
           comentarios?: string | null
           created_at?: string
@@ -398,6 +403,7 @@ export type Database = {
           id?: number
           inicio?: string | null
           lugar?: string
+          posicion?: string | null
           tdt_session?: number
         }
         Relationships: [
