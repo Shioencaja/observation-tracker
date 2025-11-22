@@ -83,7 +83,9 @@ function CreateSessionPageContent() {
   const [minimizedCards, setMinimizedCards] = useState<Set<string>>(new Set());
   const [finishedCards, setFinishedCards] = useState<Set<string>>(new Set());
   const [isLoadingSessions, setIsLoadingSessions] = useState(true);
-  const [cascadingOptions, setCascadingOptions] = useState<CascadingOptions>({});
+  const [cascadingOptions, setCascadingOptions] = useState<CascadingOptions>(
+    {}
+  );
   const [lugares, setLugares] = useState<string[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingObservation, setEditingObservation] = useState<{
@@ -108,9 +110,13 @@ function CreateSessionPageContent() {
     altura: "",
   });
   const [agencyObservation, setAgencyObservation] = useState<string>("");
-  const [agencyObservationId, setAgencyObservationId] = useState<number | null>(null);
-  const [isSavingAgencyObservation, setIsSavingAgencyObservation] = useState(false);
-  const [isAgencyObservationDialogOpen, setIsAgencyObservationDialogOpen] = useState(false);
+  const [agencyObservationId, setAgencyObservationId] = useState<number | null>(
+    null
+  );
+  const [isSavingAgencyObservation, setIsSavingAgencyObservation] =
+    useState(false);
+  const [isAgencyObservationDialogOpen, setIsAgencyObservationDialogOpen] =
+    useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -178,7 +184,9 @@ function CreateSessionPageContent() {
         guia: "Guía",
         gerente: "Gerente",
       };
-      const formattedRole = roleMap[role.toLowerCase()] || role.charAt(0).toUpperCase() + role.slice(1);
+      const formattedRole =
+        roleMap[role.toLowerCase()] ||
+        role.charAt(0).toUpperCase() + role.slice(1);
       console.log("Role mapping:", { urlRole: role, formattedRole });
       setSelectedRole(formattedRole);
       loadAgencyCode(agency, formattedAgency);
@@ -237,9 +245,12 @@ function CreateSessionPageContent() {
       console.log("loadOptions: No selectedRole, returning early");
       return;
     }
-    
-    console.log("loadOptions: Starting to load options for role:", selectedRole);
-    
+
+    console.log(
+      "loadOptions: Starting to load options for role:",
+      selectedRole
+    );
+
     try {
       // Load options from tdt_options filtered by role
       const { data: optionsData, error: optionsError } = await supabase
@@ -256,7 +267,9 @@ function CreateSessionPageContent() {
       console.log("loadOptions: Number of options:", optionsData?.length || 0);
 
       if (!optionsData || optionsData.length === 0) {
-        console.log("loadOptions: No options data, setting empty cascading options");
+        console.log(
+          "loadOptions: No options data, setting empty cascading options"
+        );
         setCascadingOptions({});
         return;
       }
@@ -269,8 +282,12 @@ function CreateSessionPageContent() {
       optionsData.forEach((option, index) => {
         const canal = option.canal;
         const descripcion = option.descripción;
-        
-        console.log(`loadOptions: Processing option ${index}:`, { canal, descripcion, fullOption: option });
+
+        console.log(`loadOptions: Processing option ${index}:`, {
+          canal,
+          descripcion,
+          fullOption: option,
+        });
 
         // If canal exists, add it to the structure
         if (canal) {
@@ -279,11 +296,13 @@ function CreateSessionPageContent() {
             cascading[canal] = [];
             console.log(`loadOptions: Created new canal entry: ${canal}`);
           }
-          
+
           // If descripcion exists, add it to the canal's descripciones array
           if (descripcion && !cascading[canal].includes(descripcion)) {
             cascading[canal].push(descripcion);
-            console.log(`loadOptions: Added descripcion "${descripcion}" to canal "${canal}"`);
+            console.log(
+              `loadOptions: Added descripcion "${descripcion}" to canal "${canal}"`
+            );
           }
           // Note: Even if there's no descripcion, the canal is still added to the structure
           // so it will appear in the dropdown
@@ -292,15 +311,21 @@ function CreateSessionPageContent() {
           const placeholderCanal = "Sin canal";
           if (!cascading[placeholderCanal]) {
             cascading[placeholderCanal] = [];
-            console.log(`loadOptions: Created placeholder canal entry: ${placeholderCanal}`);
+            console.log(
+              `loadOptions: Created placeholder canal entry: ${placeholderCanal}`
+            );
           }
-          
+
           if (!cascading[placeholderCanal].includes(descripcion)) {
             cascading[placeholderCanal].push(descripcion);
-            console.log(`loadOptions: Added descripcion "${descripcion}" to placeholder canal`);
+            console.log(
+              `loadOptions: Added descripcion "${descripcion}" to placeholder canal`
+            );
           }
         } else {
-          console.log(`loadOptions: Option ${index} has neither canal nor descripcion, skipping`);
+          console.log(
+            `loadOptions: Option ${index} has neither canal nor descripcion, skipping`
+          );
         }
       });
 
@@ -313,7 +338,10 @@ function CreateSessionPageContent() {
     }
   };
 
-  const loadAgencyCode = async (agencySlug: string, formattedAgency: string) => {
+  const loadAgencyCode = async (
+    agencySlug: string,
+    formattedAgency: string
+  ) => {
     console.log("loadAgencyCode: Starting", { agencySlug, formattedAgency });
     try {
       // Load tdt_agencias and lista_agencias to find the agency code
@@ -335,39 +363,47 @@ function CreateSessionPageContent() {
 
       // Find the agency that matches the formatted name
       const normalizedSlug = agencySlug.toLowerCase();
-      console.log("loadAgencyCode: Looking for match", { normalizedSlug, formattedAgency });
+      console.log("loadAgencyCode: Looking for match", {
+        normalizedSlug,
+        formattedAgency,
+      });
 
       for (const tdtAgencia of tdtAgenciasData) {
         const listaAgencia = tdtAgencia.lista_agencias as ListaAgencia | null;
         const agencyName = listaAgencia?.DESSUCAGE || "";
         const codSucAge = listaAgencia?.CODSUCAGE;
-        
+
         // Check if the agency name matches (case-insensitive)
         const normalizedAgencyName = agencyName.toLowerCase();
         const normalizedAgencySlug = normalizedAgencyName.replace(/\s+/g, "-");
-        
+
         console.log("loadAgencyCode: Checking", {
           agencyName,
           codSucAge,
           tdtAgenciaAgencia: tdtAgencia.agencia,
           normalizedAgencyName,
           normalizedAgencySlug,
-          matchesFormatted: normalizedAgencyName === formattedAgency.toLowerCase(),
+          matchesFormatted:
+            normalizedAgencyName === formattedAgency.toLowerCase(),
           matchesSlug: normalizedAgencySlug === normalizedSlug,
         });
-        
+
         if (
           normalizedAgencyName === formattedAgency.toLowerCase() ||
           normalizedAgencySlug === normalizedSlug
         ) {
           // Use CODSUCAGE directly as it's the primary key
           const agencyCodeValue = codSucAge ?? tdtAgencia.agencia;
-          console.log("loadAgencyCode: Match found! Setting agency code to", agencyCodeValue, "(CODSUCAGE)");
+          console.log(
+            "loadAgencyCode: Match found! Setting agency code to",
+            agencyCodeValue,
+            "(CODSUCAGE)"
+          );
           setAgencyCode(agencyCodeValue);
           return;
         }
       }
-      
+
       console.log("loadAgencyCode: No matching agency found");
     } catch (error) {
       console.error("Error loading agency code:", error);
@@ -376,11 +412,21 @@ function CreateSessionPageContent() {
 
   const loadSessions = async () => {
     if (!agencyCode || !date || !selectedRole || !user?.email) {
-      console.log("loadSessions: Missing required values", { agencyCode, date, selectedRole, userEmail: user?.email });
+      console.log("loadSessions: Missing required values", {
+        agencyCode,
+        date,
+        selectedRole,
+        userEmail: user?.email,
+      });
       return;
     }
 
-    console.log("loadSessions: Starting to load sessions", { agencyCode, date, selectedRole, userEmail: user.email });
+    console.log("loadSessions: Starting to load sessions", {
+      agencyCode,
+      date,
+      selectedRole,
+      userEmail: user.email,
+    });
 
     try {
       setIsLoadingSessions(true);
@@ -419,63 +465,78 @@ function CreateSessionPageContent() {
         .lte("created_at", endOfDayPeru)
         .order("created_at", { ascending: false });
 
-      console.log("loadSessions: Query result (Peru timezone)", { sessionsData: sessionsData?.length || 0, error: sessionsError });
+      console.log("loadSessions: Query result (Peru timezone)", {
+        sessionsData: sessionsData?.length || 0,
+        error: sessionsError,
+      });
 
       // If no results, try with a wider range or without timezone
       if ((!sessionsData || sessionsData.length === 0) && !sessionsError) {
-        console.log("loadSessions: Trying query with date only (no time filter)");
+        console.log(
+          "loadSessions: Trying query with date only (no time filter)"
+        );
         // Try querying all sessions for the agency/role and filter by date in JavaScript
         // Filter by user's email to only show sessions created by the current user
-        const { data: allSessionsData, error: allSessionsError } = await supabase
-          .from("tdt_sessions")
-          .select("*")
-          .eq("agencia", agencyCode)
-          .eq("rol", selectedRole)
-          .eq("created_by", user.email)
-          .order("created_at", { ascending: false });
+        const { data: allSessionsData, error: allSessionsError } =
+          await supabase
+            .from("tdt_sessions")
+            .select("*")
+            .eq("agencia", agencyCode)
+            .eq("rol", selectedRole)
+            .eq("created_by", user.email)
+            .order("created_at", { ascending: false });
 
         if (!allSessionsError && allSessionsData) {
-          console.log("loadSessions: All sessions for agency/role", allSessionsData.length);
+          console.log(
+            "loadSessions: All sessions for agency/role",
+            allSessionsData.length
+          );
           // Filter by date in JavaScript
           // Sessions are stored in UTC, so we need to check both UTC date and Peru timezone date
           sessionsData = allSessionsData.filter((session) => {
             if (!session.created_at) return false;
             const sessionDate = new Date(session.created_at);
-            
+
             // Check UTC date (how it's stored)
-            const sessionDateUTC = sessionDate.toISOString().split('T')[0];
-            
+            const sessionDateUTC = sessionDate.toISOString().split("T")[0];
+
             // Check Peruvian timezone date (how user sees it)
-            const sessionDatePeru = sessionDate.toLocaleDateString('en-CA', { 
-              timeZone: 'America/Lima',
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit'
+            const sessionDatePeru = sessionDate.toLocaleDateString("en-CA", {
+              timeZone: "America/Lima",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
             });
-            
+
             // Also check if the session date in UTC could represent the target date in Peru
             // A session created on date-1 in UTC (late evening) might be date in Peru
             // A session created on date in UTC (early morning) might be date-1 in Peru
             // So we check if either matches
             const matches = sessionDateUTC === date || sessionDatePeru === date;
-            
-            console.log("loadSessions: Comparing dates", { 
-              sessionDate: session.created_at, 
-              sessionDateUTC, 
-              sessionDatePeru, 
+
+            console.log("loadSessions: Comparing dates", {
+              sessionDate: session.created_at,
+              sessionDateUTC,
+              sessionDatePeru,
               targetDate: date,
-              matches
+              matches,
             });
-            
+
             return matches;
           });
-          console.log("loadSessions: Filtered sessions by date", sessionsData.length);
+          console.log(
+            "loadSessions: Filtered sessions by date",
+            sessionsData.length
+          );
         } else {
           sessionsError = allSessionsError;
         }
       }
 
-      console.log("loadSessions: Query result", { sessionsData, error: sessionsError });
+      console.log("loadSessions: Query result", {
+        sessionsData,
+        error: sessionsError,
+      });
 
       if (sessionsError) {
         console.error("Error loading sessions:", sessionsError);
@@ -493,11 +554,12 @@ function CreateSessionPageContent() {
 
       // Load observations for all sessions
       const sessionIds = sessionsData.map((s) => s.id);
-      const { data: observationsData, error: observationsError } = await supabase
-        .from("tdt_observations")
-        .select("*")
-        .in("tdt_session", sessionIds)
-        .order("inicio", { ascending: true });
+      const { data: observationsData, error: observationsError } =
+        await supabase
+          .from("tdt_observations")
+          .select("*")
+          .in("tdt_session", sessionIds)
+          .order("inicio", { ascending: true });
 
       if (observationsError) {
         console.error("Error loading observations:", observationsError);
@@ -536,7 +598,7 @@ function CreateSessionPageContent() {
 
       console.log("loadSessions: Transformed cards", cards.length);
       setSessionCards(cards);
-      
+
       // Set finished cards
       const finished = new Set<string>();
       // Set all cards as minimized on load
@@ -566,13 +628,14 @@ function CreateSessionPageContent() {
       // We need to check if there's an observation for this date
       // The date is in the URL format (YYYY-MM-DD), but created_at is a timestamp
       // We'll query all observations for this agency/role and filter by date
-      const { data: observationsData, error: observationsError } = await supabase
-        .from("tdt_agencia_observation")
-        .select("*")
-        .eq("CODSUCAGE", agencyCode)
-        .eq("rol", selectedRole)
-        .eq("created_by", user.email)
-        .order("created_at", { ascending: false });
+      const { data: observationsData, error: observationsError } =
+        await supabase
+          .from("tdt_agencia_observation")
+          .select("*")
+          .eq("CODSUCAGE", agencyCode)
+          .eq("rol", selectedRole)
+          .eq("created_by", user.email)
+          .order("created_at", { ascending: false });
 
       if (observationsError) {
         console.error("Error loading agency observation:", observationsError);
@@ -584,11 +647,11 @@ function CreateSessionPageContent() {
         const matchingObservation = observationsData.find((obs) => {
           if (!obs.created_at) return false;
           const obsDate = new Date(obs.created_at);
-          const obsDatePeru = obsDate.toLocaleDateString('en-CA', {
-            timeZone: 'America/Lima',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit'
+          const obsDatePeru = obsDate.toLocaleDateString("en-CA", {
+            timeZone: "America/Lima",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
           });
           return obsDatePeru === date;
         });
@@ -647,11 +710,11 @@ function CreateSessionPageContent() {
           const matchingObservation = existingObservations.find((obs) => {
             if (!obs.created_at) return false;
             const obsDate = new Date(obs.created_at);
-            const obsDatePeru = obsDate.toLocaleDateString('en-CA', {
-              timeZone: 'America/Lima',
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit'
+            const obsDatePeru = obsDate.toLocaleDateString("en-CA", {
+              timeZone: "America/Lima",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
             });
             return obsDatePeru === date;
           });
@@ -840,7 +903,9 @@ function CreateSessionPageContent() {
       }
 
       // Update all unfinished observations in database
-      const unfinishedObservations = card.observations.filter((obs) => !obs.isFinished);
+      const unfinishedObservations = card.observations.filter(
+        (obs) => !obs.isFinished
+      );
       if (unfinishedObservations.length > 0) {
         const observationIds = unfinishedObservations
           .map((obs) => obs.dbId)
@@ -938,7 +1003,9 @@ function CreateSessionPageContent() {
     try {
       if (observationId) {
         // Editing existing observation
-        const observation = card.observations.find((obs) => obs.id === observationId);
+        const observation = card.observations.find(
+          (obs) => obs.id === observationId
+        );
         if (!observation || !observation.dbId) return;
 
         // Update observation in database
@@ -1073,7 +1140,9 @@ function CreateSessionPageContent() {
 
     const { cardId, observationId } = editingObservation;
     const card = sessionCards.find((c) => c.id === cardId);
-    const observation = card?.observations.find((obs) => obs.id === observationId);
+    const observation = card?.observations.find(
+      (obs) => obs.id === observationId
+    );
 
     if (!observation || !observation.dbId) return;
 
@@ -1122,9 +1191,14 @@ function CreateSessionPageContent() {
     }
   };
 
-  const handleRemoveObservation = async (cardId: string, observationId: string) => {
+  const handleRemoveObservation = async (
+    cardId: string,
+    observationId: string
+  ) => {
     const card = sessionCards.find((c) => c.id === cardId);
-    const observation = card?.observations.find((obs) => obs.id === observationId);
+    const observation = card?.observations.find(
+      (obs) => obs.id === observationId
+    );
 
     if (!observation || !observation.dbId) return;
 
@@ -1238,9 +1312,14 @@ function CreateSessionPageContent() {
     });
   };
 
-  const handleFinishObservation = async (cardId: string, observationId: string) => {
+  const handleFinishObservation = async (
+    cardId: string,
+    observationId: string
+  ) => {
     const card = sessionCards.find((c) => c.id === cardId);
-    const observation = card?.observations.find((obs) => obs.id === observationId);
+    const observation = card?.observations.find(
+      (obs) => obs.id === observationId
+    );
 
     if (!observation || !observation.dbId) return;
 
@@ -1288,7 +1367,7 @@ function CreateSessionPageContent() {
   // Returns format: "YYYY-MM-DDTHH:mm:ss.sss-05:00" for timestamptz
   const getPeruvianTimeISO = (): string => {
     const now = new Date();
-    
+
     // Get the current time components in Peruvian timezone
     const formatter = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Lima",
@@ -1300,7 +1379,7 @@ function CreateSessionPageContent() {
       second: "2-digit",
       hour12: false,
     });
-    
+
     const parts = formatter.formatToParts(now);
     const year = parts.find((p) => p.type === "year")?.value || "0";
     const month = parts.find((p) => p.type === "month")?.value || "0";
@@ -1308,10 +1387,10 @@ function CreateSessionPageContent() {
     const hour = parts.find((p) => p.type === "hour")?.value || "0";
     const minute = parts.find((p) => p.type === "minute")?.value || "0";
     const second = parts.find((p) => p.type === "second")?.value || "0";
-    
+
     // Get milliseconds
     const ms = now.getMilliseconds().toString().padStart(3, "0");
-    
+
     // Format as ISO string with Peruvian timezone offset (-05:00)
     // Format: YYYY-MM-DDTHH:mm:ss.sss-05:00
     return `${year}-${month}-${day}T${hour}:${minute}:${second}.${ms}-05:00`;
@@ -1333,7 +1412,10 @@ function CreateSessionPageContent() {
   // Get second level options (canal) - independent of lugar selection
   const getSecondLevelOptions = useMemo(() => {
     const options = Object.keys(cascadingOptions).sort();
-    console.log("Computing second level options from cascadingOptions:", cascadingOptions);
+    console.log(
+      "Computing second level options from cascadingOptions:",
+      cascadingOptions
+    );
     console.log("Result:", options);
     return options;
   }, [cascadingOptions]);
@@ -1443,7 +1525,8 @@ function CreateSessionPageContent() {
                         }}
                       >
                         <CardTitle className="text-lg">
-                          {card.cliente || `Cliente ${sessionCards.length - index}`}
+                          {card.cliente ||
+                            `Cliente ${sessionCards.length - index}`}
                         </CardTitle>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1724,13 +1807,19 @@ function CreateSessionPageContent() {
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="Parado" id="posicion-parado" />
-                    <Label htmlFor="posicion-parado" className="font-normal cursor-pointer">
+                    <Label
+                      htmlFor="posicion-parado"
+                      className="font-normal cursor-pointer"
+                    >
                       Parado
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="Sentado" id="posicion-sentado" />
-                    <Label htmlFor="posicion-sentado" className="font-normal cursor-pointer">
+                    <Label
+                      htmlFor="posicion-sentado"
+                      className="font-normal cursor-pointer"
+                    >
                       Sentado
                     </Label>
                   </div>
@@ -1751,13 +1840,19 @@ function CreateSessionPageContent() {
                 >
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="Mesa Alta" id="altura-alta" />
-                    <Label htmlFor="altura-alta" className="font-normal cursor-pointer">
+                    <Label
+                      htmlFor="altura-alta"
+                      className="font-normal cursor-pointer"
+                    >
                       Mesa Alta
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
                     <RadioGroupItem value="Mesa Baja" id="altura-baja" />
-                    <Label htmlFor="altura-baja" className="font-normal cursor-pointer">
+                    <Label
+                      htmlFor="altura-baja"
+                      className="font-normal cursor-pointer"
+                    >
                       Mesa Baja
                     </Label>
                   </div>
@@ -1864,7 +1959,8 @@ function CreateSessionPageContent() {
           <DialogHeader>
             <DialogTitle>Observaciones</DialogTitle>
             <DialogDescription>
-              Agrega observaciones sobre esta agencia para la fecha y rol seleccionados
+              Agrega observaciones sobre esta agencia para la fecha y rol
+              seleccionados
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -1925,4 +2021,3 @@ export default function CreateSessionPage() {
     </Suspense>
   );
 }
-

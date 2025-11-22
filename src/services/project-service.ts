@@ -7,6 +7,7 @@ export interface Project {
   created_by: string;
   created_at: string;
   updated_at: string;
+  is_finished: boolean | null;
   session_count?: number;
 }
 

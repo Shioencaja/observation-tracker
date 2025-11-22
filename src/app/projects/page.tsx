@@ -11,6 +11,7 @@ import {
   Settings,
   Search,
   X,
+  Clock,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { projectService, ProjectWithAccess } from "@/services/project-service";
@@ -51,10 +52,9 @@ export default function ProjectsPage() {
   const { isLoading: authLoading } = useRequireAuth();
 
   // Async operation hook for loading projects
-  const {
-    isLoading,
-    execute: executeAsync,
-  } = useAsyncOperation<ProjectWithAccess[]>({
+  const { isLoading, execute: executeAsync } = useAsyncOperation<
+    ProjectWithAccess[]
+  >({
     onError: (error) => {
       handleError(error, "Error al cargar los proyectos");
     },
@@ -293,7 +293,8 @@ export default function ProjectsPage() {
                               >
                                 <BarChart3 className="h-4 w-4" />
                               </Button> */}
-                              {(user?.id === projectWithAccess.project.created_by ||
+                              {(user?.id ===
+                                projectWithAccess.project.created_by ||
                                 projectWithAccess.access_level === "admin") && (
                                 <Button
                                   variant="ghost"
@@ -441,6 +442,17 @@ export default function ProjectsPage() {
         </div>
       </div>
       <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+      {/* Floating Button to Toma de Tiempos */}
+      <Button
+        onClick={() => router.push("/toma-de-tiempos")}
+        className="fixed bottom-6 right-6 h-14 w-14 rounded-full bg-gray-900 hover:bg-gray-800 text-white shadow-lg z-50 flex items-center justify-center p-0"
+        size="lg"
+        title="Toma de Tiempos"
+        aria-label="Ir a Toma de Tiempos"
+      >
+        <Clock className="h-6 w-6" />
+      </Button>
     </div>
   );
 }
