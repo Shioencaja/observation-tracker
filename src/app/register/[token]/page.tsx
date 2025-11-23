@@ -94,12 +94,15 @@ function RegisterPageContent() {
     try {
       // Check if user already exists in tdt_users by checking if email is already registered
       // We'll check this by attempting sign up and handling the error, or by checking auth
+      // Get the site URL from environment variable or fallback to current origin
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      
       // First, try to sign up
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/register/success`,
+          emailRedirectTo: `${siteUrl}/auth/callback?next=/register/success`,
         },
       });
 

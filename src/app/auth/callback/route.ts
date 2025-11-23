@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   const code = requestUrl.searchParams.get("code");
   const token_hash = requestUrl.searchParams.get("token_hash");
   const type = requestUrl.searchParams.get("type");
-  const next = "/register/success";
+  const next = requestUrl.searchParams.get("next") || "/register/success";
 
   // Create a Supabase client for server-side operations
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -20,7 +20,12 @@ export async function GET(request: NextRequest) {
     if (error) {
       console.error("Error exchanging code for session:", error);
       // Redirect to login with error
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url));
+      return NextResponse.redirect(
+        new URL(
+          `/login?error=${encodeURIComponent(error.message)}`,
+          request.url
+        )
+      );
     }
   } else if (token_hash && type === "email") {
     // Handle email confirmation with token_hash
@@ -30,11 +35,15 @@ export async function GET(request: NextRequest) {
     });
     if (error) {
       console.error("Error verifying email:", error);
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, request.url));
+      return NextResponse.redirect(
+        new URL(
+          `/login?error=${encodeURIComponent(error.message)}`,
+          request.url
+        )
+      );
     }
   }
 
   // Redirect to the success page after email confirmation
   return NextResponse.redirect(new URL(next, request.url));
 }
-
