@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { Eye, EyeOff, Lock, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, Lock, AlertCircle, Check, X } from "lucide-react";
 import { LoadingButton } from "@/components/loading/LoadingButton";
 import { FullPageLoading } from "@/components/LoadingSpinner";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,8 @@ function RegisterPageContent() {
   const [hasAccess, setHasAccess] = useState<boolean | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   const [emailConfirmationSent, setEmailConfirmationSent] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [confirmPasswordError, setConfirmPasswordError] = useState<string | null>(null);
   const { toasts, handleError, showSuccess, showError, removeToast } = useToastManager();
 
   // Check if token is provided and valid
@@ -55,6 +57,80 @@ function RegisterPageContent() {
       }
     }
   }, [token]);
+
+  // Check individual password requirements
+  const getPasswordRequirements = (pwd: string) => {
+    return {
+      minLength: pwd.length >= 12,
+      hasUpperCase: /[A-Z]/.test(pwd),
+      hasLowerCase: /[a-z]/.test(pwd),
+      hasNumber: /[0-9]/.test(pwd),
+      hasSymbol: /[^A-Za-z0-9]/.test(pwd),
+    };
+  };
+
+  // Validate password in real-time
+  const validatePassword = (pwd: string): string | null => {
+    if (pwd.length === 0) {
+      return null; // Don't show error for empty password
+    }
+    
+    const requirements = getPasswordRequirements(pwd);
+    const errors: string[] = [];
+    
+    if (!requirements.minLength) {
+      errors.push("al menos 12 caracteres");
+    }
+    
+    if (!requirements.hasUpperCase) {
+      errors.push("una letra mayúscula");
+    }
+    
+    if (!requirements.hasLowerCase) {
+      errors.push("una letra minúscula");
+    }
+    
+    if (!requirements.hasNumber) {
+      errors.push("un número");
+    }
+    
+    if (!requirements.hasSymbol) {
+      errors.push("un símbolo");
+    }
+    
+    if (errors.length > 0) {
+      return `La contraseña debe tener ${errors.join(", ")}`;
+    }
+    
+    return null;
+  };
+
+  // Validate password match
+  const validatePasswordMatch = (pwd: string, confirm: string): string | null => {
+    if (confirm.length === 0) {
+      return null; // Don't show error for empty confirm password
+    }
+    if (pwd !== confirm) {
+      return "Las contraseñas no coinciden";
+    }
+    return null;
+  };
+
+  // Handle password change with validation
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    setPasswordError(validatePassword(value));
+    // Also validate match if confirm password is filled
+    if (confirmPassword) {
+      setConfirmPasswordError(validatePasswordMatch(value, confirmPassword));
+    }
+  };
+
+  // Handle confirm password change with validation
+  const handleConfirmPasswordChange = (value: string) => {
+    setConfirmPassword(value);
+    setConfirmPasswordError(validatePasswordMatch(password, value));
+  };
 
   useEffect(() => {
     // Don't redirect if user is registering or if we're in the registration flow
@@ -76,16 +152,20 @@ function RegisterPageContent() {
     setIsLoading(true);
     setIsRegistering(true);
 
-    // Validation
-    if (password !== confirmPassword) {
-      handleError(new Error("Las contraseñas no coinciden"));
-      setIsLoading(false);
-      setIsRegistering(false);
-      return;
-    }
-
-    if (password.length < 6) {
-      handleError(new Error("La contraseña debe tener al menos 6 caracteres"));
+    // Validation - check for errors first
+    const pwdError = validatePassword(password);
+    const confirmError = validatePasswordMatch(password, confirmPassword);
+    
+    if (pwdError || confirmError) {
+      // Set errors to show in UI
+      setPasswordError(pwdError);
+      setConfirmPasswordError(confirmError);
+      // Show toast for the first error found
+      if (pwdError) {
+        handleError(new Error(pwdError));
+      } else if (confirmError) {
+        handleError(new Error(confirmError));
+      }
       setIsLoading(false);
       setIsRegistering(false);
       return;
@@ -135,6 +215,22 @@ function RegisterPageContent() {
           console.log("⚠️ User already registered, showing error toast");
           // Use showError directly to ensure toast is shown
           showError("Este correo electrónico ya está registrado. Por favor, inicia sesión.");
+          setIsLoading(false);
+          setIsRegistering(false);
+          return;
+        }
+        
+        // Check if error is password-related
+        const isPasswordError = 
+          errorMessage.includes("password") ||
+          errorMessage.includes("contraseña") ||
+          errorMessage.includes("weak password") ||
+          errorMessage.includes("password is too common");
+        
+        if (isPasswordError) {
+          // Show password error in the password field
+          setPasswordError(signUpError.message);
+          handleError(signUpError, "Error en la contraseña");
           setIsLoading(false);
           setIsRegistering(false);
           return;
@@ -364,12 +460,14 @@ function RegisterPageContent() {
                     <Input
                       id="password"
                       type={showPassword ? "text" : "password"}
-                      placeholder="Mínimo 6 caracteres"
+                      placeholder="Mínimo 12 caracteres"
                       value={password}
-                      onChange={(e) => setPassword(e.target.value)}
+                      onChange={(e) => handlePasswordChange(e.target.value)}
                       required
-                      minLength={6}
-                      className="border-gray-200 focus:border-gray-400 focus:ring-gray-400"
+                      minLength={12}
+                      className={`border-gray-200 focus:border-gray-400 focus:ring-gray-400 ${
+                        passwordError ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                      }`}
                     />
                     <Button
                       type="button"
@@ -384,6 +482,100 @@ function RegisterPageContent() {
                         <Eye className="h-4 w-4" />
                       )}
                     </Button>
+                  </div>
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xs font-medium text-gray-700 mb-1">
+                      Requisitos de contraseña:
+                    </p>
+                    <div className="space-y-1">
+                      {(() => {
+                        const requirements = getPasswordRequirements(password);
+                        return (
+                          <>
+                            <div className="flex items-center gap-2 text-xs">
+                              {requirements.minLength ? (
+                                <Check className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <X className="h-3.5 w-3.5 text-gray-400" />
+                              )}
+                              <span
+                                className={
+                                  requirements.minLength
+                                    ? "text-green-700"
+                                    : "text-gray-500"
+                                }
+                              >
+                                Al menos 12 caracteres
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              {requirements.hasUpperCase ? (
+                                <Check className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <X className="h-3.5 w-3.5 text-gray-400" />
+                              )}
+                              <span
+                                className={
+                                  requirements.hasUpperCase
+                                    ? "text-green-700"
+                                    : "text-gray-500"
+                                }
+                              >
+                                Una letra mayúscula
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              {requirements.hasLowerCase ? (
+                                <Check className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <X className="h-3.5 w-3.5 text-gray-400" />
+                              )}
+                              <span
+                                className={
+                                  requirements.hasLowerCase
+                                    ? "text-green-700"
+                                    : "text-gray-500"
+                                }
+                              >
+                                Una letra minúscula
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              {requirements.hasNumber ? (
+                                <Check className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <X className="h-3.5 w-3.5 text-gray-400" />
+                              )}
+                              <span
+                                className={
+                                  requirements.hasNumber
+                                    ? "text-green-700"
+                                    : "text-gray-500"
+                                }
+                              >
+                                Un número
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs">
+                              {requirements.hasSymbol ? (
+                                <Check className="h-3.5 w-3.5 text-green-600" />
+                              ) : (
+                                <X className="h-3.5 w-3.5 text-gray-400" />
+                              )}
+                              <span
+                                className={
+                                  requirements.hasSymbol
+                                    ? "text-green-700"
+                                    : "text-gray-500"
+                                }
+                              >
+                                Un símbolo
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 
@@ -400,10 +592,12 @@ function RegisterPageContent() {
                       type={showConfirmPassword ? "text" : "password"}
                       placeholder="Confirma tu contraseña"
                       value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onChange={(e) => handleConfirmPasswordChange(e.target.value)}
                       required
-                      minLength={6}
-                      className="border-gray-200 focus:border-gray-400 focus:ring-gray-400"
+                      minLength={12}
+                      className={`border-gray-200 focus:border-gray-400 focus:ring-gray-400 ${
+                        confirmPasswordError ? "border-red-500 focus:border-red-500 focus:ring-red-500" : ""
+                      }`}
                     />
                     <Button
                       type="button"
@@ -419,6 +613,12 @@ function RegisterPageContent() {
                       )}
                     </Button>
                   </div>
+                  {confirmPasswordError && (
+                    <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-4 w-4" />
+                      {confirmPasswordError}
+                    </p>
+                  )}
                 </div>
 
                 <LoadingButton
