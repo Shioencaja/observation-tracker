@@ -20,25 +20,68 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Validate user credentials by checking if user still exists
+  const validateUser = async (session: Session | null) => {
+    if (!session || !session.user) {
+      return false;
+    }
+
+    try {
+      // Call getUser() which validates the user still exists in Supabase
+      const { data: { user }, error } = await supabase.auth.getUser();
+      
+      if (error || !user) {
+        console.warn("⚠️ User validation failed - user no longer exists:", error);
+        // User was deleted or session is invalid
+        await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        forceLogout();
+        return false;
+      }
+
+      // User exists and is valid
+      return true;
+    } catch (err) {
+      console.error("❌ Error validating user:", err);
+      // On error, clear session to be safe
+      setSession(null);
+      setUser(null);
+      forceLogout();
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Set a timeout to prevent infinite loading
     const timeout = setTimeout(() => {
       setLoading(false);
     }, 5000); // 5 second timeout
 
-    // Get initial session
+    // Get initial session and validate user
     supabase.auth
       .getSession()
-      .then(({ data: { session }, error }) => {
+      .then(async ({ data: { session }, error }) => {
         clearTimeout(timeout);
         if (error) {
           console.error("❌ AuthProvider: Error getting session", error);
           // Clear any invalid session data
           setSession(null);
           setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        if (session) {
+          // Validate that the user still exists
+          const isValid = await validateUser(session);
+          if (isValid) {
+            setSession(session);
+            setUser(session.user);
+          }
         } else {
-          setSession(session);
-          setUser(session?.user ?? null);
+          setSession(null);
+          setUser(null);
         }
         setLoading(false);
       })
@@ -53,26 +96,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       clearTimeout(timeout);
 
       // Handle specific auth events
       if (event === "SIGNED_OUT") {
         setSession(null);
         setUser(null);
-      } else if (event === "TOKEN_REFRESHED") {
-        setSession(session);
-        setUser(session?.user ?? null);
-      } else if (event === "SIGNED_IN") {
-        setSession(session);
-        setUser(session?.user ?? null);
+      } else if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") {
+        // Validate user on token refresh or sign in
+        if (session) {
+          const isValid = await validateUser(session);
+          if (isValid) {
+            setSession(session);
+            setUser(session.user);
+          }
+        } else {
+          setSession(null);
+          setUser(null);
+        }
       } else if (event === "PASSWORD_RECOVERY") {
         // Handle password recovery
-        setSession(session);
-        setUser(session?.user ?? null);
+        if (session) {
+          const isValid = await validateUser(session);
+          if (isValid) {
+            setSession(session);
+            setUser(session.user);
+          }
+        } else {
+          setSession(null);
+          setUser(null);
+        }
       } else {
-        setSession(session);
-        setUser(session?.user ?? null);
+        // For other events, validate user if session exists
+        if (session) {
+          const isValid = await validateUser(session);
+          if (isValid) {
+            setSession(session);
+            setUser(session.user);
+          }
+        } else {
+          setSession(null);
+          setUser(null);
+        }
       }
 
       setLoading(false);
@@ -82,7 +148,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(timeout);
       subscription.unsubscribe();
     };
-  }, []);
+  }, []); // Empty deps - we only want this to run once on mount
+
+  // Separate effect for periodic and focus validation
+  useEffect(() => {
+    if (!session || !user) {
+      return; // No need to validate if no session
+    }
+
+    // Validate user on window focus (when user returns to tab)
+    const handleFocus = async () => {
+      const currentSession = session;
+      if (currentSession) {
+        const isValid = await validateUser(currentSession);
+        if (!isValid) {
+          // User was invalidated, state already cleared by validateUser
+          console.log("🔄 User invalidated on focus");
+        }
+      }
+    };
+
+    // Validate user periodically (every 5 minutes)
+    const validationInterval = setInterval(async () => {
+      const currentSession = session;
+      if (currentSession) {
+        const isValid = await validateUser(currentSession);
+        if (!isValid) {
+          // User was invalidated, state already cleared by validateUser
+          console.log("🔄 User invalidated on periodic check");
+        }
+      }
+    }, 5 * 60 * 1000); // 5 minutes
+
+    window.addEventListener("focus", handleFocus);
+
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      clearInterval(validationInterval);
+    };
+  }, [session, user]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
