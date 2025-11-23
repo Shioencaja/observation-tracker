@@ -95,42 +95,41 @@ function RegisterPageContent() {
       // Check if user already exists in tdt_users by checking if email is already registered
       // We'll check this by attempting sign up and handling the error, or by checking auth
       // Get the site URL from environment variable or fallback to current origin
+      // Note: NEXT_PUBLIC_ variables are embedded at build time, so they must be set during build
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+      const redirectUrl = `${siteUrl}/auth/callback?next=/register/success`;
+      
+      console.log("🔗 Email redirect URL:", redirectUrl);
+      console.log("🌐 Site URL source:", process.env.NEXT_PUBLIC_SITE_URL ? "Environment variable" : "window.location.origin");
       
       // First, try to sign up
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${siteUrl}/auth/callback?next=/register/success`,
+          emailRedirectTo: redirectUrl,
         },
       });
 
       if (signUpError) {
         // Check if error is due to user already existing
         const errorMessage = signUpError.message.toLowerCase();
-        const errorCode = signUpError.status?.toString() || "";
         
         console.log("SignUp error:", signUpError);
         console.log("Error message:", errorMessage);
-        console.log("Error code:", errorCode);
+        console.log("Error status:", signUpError.status);
         
-        // Check various patterns for "user already exists" errors
-        // Supabase typically returns errors like:
+        // Only check for specific duplicate email messages
+        // Supabase returns specific messages for duplicate emails:
         // - "User already registered"
         // - "Email address is already registered"
-        // - Status code 422 for validation errors
+        // - "A user with this email address has already been registered"
         const isAlreadyRegistered = 
           errorMessage.includes("already registered") ||
-          errorMessage.includes("user already exists") ||
-          errorMessage.includes("email already") ||
-          errorMessage.includes("already exists") ||
           errorMessage.includes("user already registered") ||
-          errorMessage.includes("email address is already") ||
-          errorMessage.includes("duplicate") ||
-          errorMessage.includes("email is already") ||
-          errorCode === "422" || // Unprocessable Entity - often used for duplicate emails
-          signUpError.name === "AuthApiError";
+          errorMessage.includes("email address is already registered") ||
+          errorMessage.includes("a user with this email address has already been registered") ||
+          (errorMessage.includes("email") && errorMessage.includes("already") && errorMessage.includes("registered"));
         
         if (isAlreadyRegistered) {
           console.log("⚠️ User already registered, showing error toast");
@@ -141,7 +140,7 @@ function RegisterPageContent() {
           return;
         }
         
-        // For other errors, show them as well
+        // For other errors, show the actual error message
         console.error("❌ SignUp error (not duplicate):", signUpError);
         handleError(signUpError, "Error al registrar usuario");
         setIsLoading(false);
