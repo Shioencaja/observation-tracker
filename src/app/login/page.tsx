@@ -30,6 +30,13 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
+      // Check if we're coming from registration success page
+      const fromRegister = sessionStorage.getItem("fromRegister");
+      if (fromRegister === "true") {
+        // Clear the flag and allow navigation to success page
+        sessionStorage.removeItem("fromRegister");
+        return;
+      }
       // If user is already logged in, redirect to projects
       router.push("/projects");
     }
@@ -84,6 +91,14 @@ export default function LoginPage() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+
+            <Alert>
+              <AlertDescription>
+                <strong>Importante:</strong> Si acabas de registrarte, revisa tu correo electrónico 
+                y haz clic en el enlace de confirmación antes de iniciar sesión. 
+                El enlace te llevará a la página de éxito del registro.
+              </AlertDescription>
+            </Alert>
 
             <div>
               <Label
