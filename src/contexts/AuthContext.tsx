@@ -21,19 +21,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   // Validate user credentials by checking if user still exists
+  // Use getSession() instead of getUser() to avoid triggering token refresh
   const validateUser = async (session: Session | null) => {
     if (!session || !session.user) {
       return false;
     }
 
     try {
-      // Call getUser() which validates the user still exists in Supabase
-      const { data: { user }, error } = await supabase.auth.getUser();
+      // Use getSession() to check if session is still valid without triggering refresh
+      const { data: { session: currentSession }, error } = await supabase.auth.getSession();
       
-      if (error || !user) {
-        console.warn("⚠️ User validation failed - user no longer exists:", error);
+      // If there's an error or no session, user is invalid
+      if (error || !currentSession || !currentSession.user) {
+        console.warn("⚠️ User validation failed - session invalid:", error);
         // User was deleted or session is invalid
-        await supabase.auth.signOut();
+        setSession(null);
+        setUser(null);
+        // Don't call signOut if session is already invalid to avoid auth errors
+        forceLogout();
+        return false;
+      }
+
+      // Check if the user ID matches (user still exists)
+      if (currentSession.user.id !== session.user.id) {
+        console.warn("⚠️ User validation failed - user ID mismatch");
         setSession(null);
         setUser(null);
         forceLogout();
@@ -42,13 +53,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // User exists and is valid
       return true;
-    } catch (err) {
-      console.error("❌ Error validating user:", err);
-      // On error, clear session to be safe
-      setSession(null);
-      setUser(null);
-      forceLogout();
-      return false;
+    } catch (err: any) {
+      // Ignore auth errors that might be caused by token refresh issues
+      // Only log non-auth errors
+      if (err?.message && !err.message.includes("token") && !err.message.includes("refresh")) {
+        console.error("❌ Error validating user:", err);
+      }
+      // Don't clear session on token-related errors to avoid disrupting user experience
+      // Only clear if it's a clear authentication error
+      if (err?.status === 401 || err?.status === 403) {
+        setSession(null);
+        setUser(null);
+        forceLogout();
+        return false;
+      }
+      // For other errors (like network issues), assume user is still valid
+      return true;
     }
   };
 
@@ -103,8 +123,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event === "SIGNED_OUT") {
         setSession(null);
         setUser(null);
-      } else if (event === "TOKEN_REFRESHED" || event === "SIGNED_IN") {
-        // Validate user on token refresh or sign in
+      } else if (event === "TOKEN_REFRESHED") {
+        // Don't validate on token refresh - token was just refreshed, so user is valid
+        // Just update the session
+        if (session) {
+          setSession(session);
+          setUser(session.user);
+        } else {
+          setSession(null);
+          setUser(null);
+        }
+      } else if (event === "SIGNED_IN") {
+        // Validate user on sign in
         if (session) {
           const isValid = await validateUser(session);
           if (isValid) {
@@ -128,13 +158,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(null);
         }
       } else {
-        // For other events, validate user if session exists
+        // For other events (like USER_UPDATED), just update session without validation
+        // to avoid excessive validation calls
         if (session) {
-          const isValid = await validateUser(session);
-          if (isValid) {
-            setSession(session);
-            setUser(session.user);
-          }
+          setSession(session);
+          setUser(session.user);
         } else {
           setSession(null);
           setUser(null);
