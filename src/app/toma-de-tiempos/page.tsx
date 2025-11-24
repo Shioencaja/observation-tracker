@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowLeft, Loader2, Settings } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -33,6 +33,7 @@ function TomaDeTiemposPageContent() {
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [agencies, setAgencies] = useState<AgencyOption[]>([]);
   const [isLoadingAgencies, setIsLoadingAgencies] = useState(true);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
 
   // Convert agencies to ComboboxOption format
   const agencyOptions: ComboboxOption[] = agencies.map((agency) => ({
@@ -52,13 +53,7 @@ function TomaDeTiemposPageContent() {
     }
   }, [user, authLoading, router]);
 
-  useEffect(() => {
-    if (user) {
-      loadAgencies();
-    }
-  }, [user]);
-
-  const loadAgencies = async () => {
+  const loadAgencies = useCallback(async () => {
     try {
       setIsLoadingAgencies(true);
 
@@ -114,7 +109,51 @@ function TomaDeTiemposPageContent() {
     } finally {
       setIsLoadingAgencies(false);
     }
-  };
+  }, []);
+
+  // Check if user has access to tdt_users
+  useEffect(() => {
+    const checkTdtUserAccess = async () => {
+      if (!user || authLoading) {
+        setIsCheckingAccess(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from("tdt_users")
+          .select("id")
+          .eq("user_id", user.id)
+          .single();
+
+        if (error && error.code !== "PGRST116") {
+          // PGRST116 is "not found" error, which means user doesn't have access
+          console.error("Error checking tdt_users:", error);
+          // Redirect to request access page
+          router.push("/toma-de-tiempos/request-access");
+          return;
+        }
+
+        // If no data found, user doesn't have access
+        if (!data) {
+          router.push("/toma-de-tiempos/request-access");
+          return;
+        }
+
+        // User has access, continue loading agencies
+        setIsCheckingAccess(false);
+        loadAgencies();
+      } catch (error) {
+        console.error("Error checking tdt_users access:", error);
+        // On error, redirect to request access page to be safe
+        router.push("/toma-de-tiempos/request-access");
+      }
+    };
+
+    if (!authLoading && user) {
+      checkTdtUserAccess();
+    }
+  }, [user, authLoading, router, loadAgencies]);
 
   const handleContinue = () => {
     if (selectedAgency && selectedRole) {
@@ -138,7 +177,7 @@ function TomaDeTiemposPageContent() {
     router.push("/projects");
   };
 
-  if (authLoading || isLoadingAgencies) {
+  if (authLoading || isLoadingAgencies || isCheckingAccess) {
     return <FullPageLoading text="Cargando..." />;
   }
 
