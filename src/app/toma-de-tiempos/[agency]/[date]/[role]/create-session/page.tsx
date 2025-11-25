@@ -2158,9 +2158,9 @@ function CreateSessionPageContent() {
         ref={scrollContainerRef}
         className="flex justify-center h-full overflow-y-auto min-h-0"
       >
-        <div className="h-full w-full max-w-4xl px-6 py-6 pb-32">
+        <div className="w-full max-w-4xl px-6 py-6">
           {/* Session Cards */}
-          <div className="w-full space-y-4">
+          <div className="w-full space-y-4 pb-40">
             {sessionCards.map((card, index) => {
               const isMinimized = minimizedCards.has(card.id);
               const isFinished = finishedCards.has(card.id);
