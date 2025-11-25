@@ -125,11 +125,6 @@ function CreateSessionPageContent() {
     useState(false);
   const [isAgencyObservationDialogOpen, setIsAgencyObservationDialogOpen] =
     useState(false);
-  const [allDayObservations, setAllDayObservations] = useState<
-    TdtObservation[]
-  >([]);
-  const [isLoadingDayObservations, setIsLoadingDayObservations] =
-    useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const sessionCardsRef = useRef(sessionCards);
@@ -460,13 +455,6 @@ function CreateSessionPageContent() {
     }
   }, [isLoadingSessions, sessionCards]);
 
-  // Load all day observations when dialog opens
-  useEffect(() => {
-    if (isDialogOpen && agencyCode && date && selectedRole) {
-      loadAllDayObservations();
-    }
-  }, [isDialogOpen, agencyCode, date, selectedRole]);
-
   const loadLugares = async () => {
     try {
       // Load lugares from tdt_lugar table
@@ -792,64 +780,6 @@ function CreateSessionPageContent() {
       console.error("Error loading sessions:", error);
     } finally {
       setIsLoadingSessions(false);
-    }
-  };
-
-  const loadAllDayObservations = async () => {
-    if (!agencyCode || !date || !selectedRole) {
-      return;
-    }
-
-    setIsLoadingDayObservations(true);
-    try {
-      // Calculate date range for the day in Peru timezone
-      const startOfDayPeru = new Date(`${date}T00:00:00-05:00`).toISOString();
-      const endOfDayPeru = new Date(`${date}T23:59:59-05:00`).toISOString();
-
-      // Get all sessions for this day, agency, and role
-      const { data: sessionsData, error: sessionsError } = await supabase
-        .from("tdt_sessions")
-        .select("id")
-        .eq("agencia", agencyCode)
-        .eq("rol", selectedRole)
-        .gte("created_at", startOfDayPeru)
-        .lte("created_at", endOfDayPeru);
-
-      if (sessionsError) {
-        console.error(
-          "Error loading sessions for observations:",
-          sessionsError
-        );
-        setAllDayObservations([]);
-        return;
-      }
-
-      if (!sessionsData || sessionsData.length === 0) {
-        setAllDayObservations([]);
-        return;
-      }
-
-      // Get all observations for these sessions
-      const sessionIds = sessionsData.map((s) => s.id);
-      const { data: observationsData, error: observationsError } =
-        await supabase
-          .from("tdt_observations")
-          .select("*")
-          .in("tdt_session", sessionIds)
-          .order("inicio", { ascending: false });
-
-      if (observationsError) {
-        console.error("Error loading day observations:", observationsError);
-        setAllDayObservations([]);
-        return;
-      }
-
-      setAllDayObservations(observationsData || []);
-    } catch (error) {
-      console.error("Error loading day observations:", error);
-      setAllDayObservations([]);
-    } finally {
-      setIsLoadingDayObservations(false);
     }
   };
 
@@ -1851,10 +1781,6 @@ function CreateSessionPageContent() {
         altura: "",
       });
       console.log("handleSaveObservation: Completed successfully");
-      // Refresh the day observations list
-      if (isDialogOpen && agencyCode && date && selectedRole) {
-        loadAllDayObservations();
-      }
       isSavingObservationRef.current = false;
     } catch (error) {
       console.error("Error saving observation:", error);
@@ -2566,55 +2492,6 @@ function CreateSessionPageContent() {
               Selecciona las opciones en cascada para la observación
             </DialogDescription>
           </DialogHeader>
-          {/* Previously Saved Observations */}
-          {allDayObservations.length > 0 && (
-            <div className="border-t border-b py-3 max-h-48 overflow-y-auto">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">
-                Observaciones guardadas hoy ({allDayObservations.length})
-              </h4>
-              <div className="space-y-2">
-                {allDayObservations.map((obs) => (
-                  <div
-                    key={obs.id}
-                    className="text-xs bg-gray-50 p-2 rounded border border-gray-200"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-gray-900 truncate">
-                          {obs.lugar || "—"} / {obs.canal || "—"} /{" "}
-                          {obs.descripcion || "—"}
-                        </div>
-                        {obs.comentarios && (
-                          <div className="text-gray-600 mt-1 line-clamp-2">
-                            {obs.comentarios}
-                          </div>
-                        )}
-                        {obs.posicion && (
-                          <div className="text-gray-500 mt-1">
-                            Posición: {obs.posicion}
-                            {obs.altura && ` - ${obs.altura}`}
-                          </div>
-                        )}
-                        <div className="text-gray-400 mt-1 text-[10px]">
-                          {obs.inicio
-                            ? new Date(obs.inicio).toLocaleTimeString("es-PE", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : ""}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {isLoadingDayObservations && (
-            <div className="border-t border-b py-3 text-sm text-gray-500 text-center">
-              Cargando observaciones...
-            </div>
-          )}
           <div className="space-y-4 py-4">
             {/* First Dropdown - Lugar */}
             <div>
