@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, Suspense, useMemo, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  Suspense,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -60,6 +67,7 @@ interface SessionCard {
   startTime: string | null; // Maps to inicio
   finishTime: string | null; // Maps to fin
   cliente: string | null; // Maps to cliente from tdt_sessions
+  created_at?: string; // Creation timestamp for sorting
 }
 
 // Cascading options structure from tdt_options
@@ -117,8 +125,28 @@ function CreateSessionPageContent() {
     useState(false);
   const [isAgencyObservationDialogOpen, setIsAgencyObservationDialogOpen] =
     useState(false);
+  const [allDayObservations, setAllDayObservations] = useState<
+    TdtObservation[]
+  >([]);
+  const [isLoadingDayObservations, setIsLoadingDayObservations] =
+    useState(false);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const sessionCardsRef = useRef(sessionCards);
+  const finishedCardsRef = useRef(finishedCards);
+  const lastVisibleRef = useRef(Date.now());
+  const recentlyCreatedSessionsRef = useRef<Set<number>>(new Set());
+  const isCreatingSessionRef = useRef(false);
+  const isSavingObservationRef = useRef(false);
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    sessionCardsRef.current = sessionCards;
+  }, [sessionCards]);
+
+  useEffect(() => {
+    finishedCardsRef.current = finishedCards;
+  }, [finishedCards]);
 
   // Helper to get card finish time
   const getCardFinishTime = (cardId: string): string | null => {
@@ -171,14 +199,85 @@ function CreateSessionPageContent() {
     };
   }, []);
 
+  // Handle visibility change - save state and reload page when user comes back to tab
+  useEffect(() => {
+    let wasHidden = false;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        // Mark that the page was hidden
+        wasHidden = true;
+
+        // Save state if user is creating or editing
+        if (
+          isDialogOpen ||
+          editingObservation ||
+          isAgencyObservationDialogOpen
+        ) {
+          const stateToSave = {
+            isDialogOpen,
+            editingObservation,
+            dialogFormData,
+            isAgencyObservationDialogOpen,
+            agencyObservation,
+            sessionCards: sessionCards.map((card) => ({
+              id: card.id,
+              dbId: card.dbId,
+              cliente: card.cliente,
+            })),
+            minimizedCards: Array.from(minimizedCards),
+            timestamp: Date.now(),
+          };
+          sessionStorage.setItem(
+            "tdt_create_session_state",
+            JSON.stringify(stateToSave)
+          );
+        }
+
+        // Save recently created sessions to prevent duplicates
+        if (recentlyCreatedSessionsRef.current.size > 0) {
+          const recentSessions = Array.from(recentlyCreatedSessionsRef.current);
+          sessionStorage.setItem(
+            "tdt_recent_sessions",
+            JSON.stringify({
+              sessionIds: recentSessions,
+              timestamp: Date.now(),
+            })
+          );
+        }
+      } else if (document.visibilityState === "visible" && wasHidden) {
+        // Always reload the page when user comes back after leaving
+        // State will be restored after reload
+        window.location.reload();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [
+    isDialogOpen,
+    editingObservation,
+    dialogFormData,
+    sessionCards,
+    isAgencyObservationDialogOpen,
+    agencyObservation,
+  ]);
+
   useEffect(() => {
     if (agency && role) {
-      // Convert slug back to readable format (e.g., "santo-domingo" -> "Santo Domingo")
-      const formattedAgency = agency
-        .split("-")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
-      setSelectedAgency(formattedAgency);
+      // agency is now CODSUCAGE (number as string), parse it
+      const agencyCode = parseInt(agency, 10);
+      if (isNaN(agencyCode)) {
+        // Invalid agency code, redirect back
+        router.push("/toma-de-tiempos");
+        return;
+      }
+
+      // Set agency code directly
+      setAgencyCode(agencyCode);
+
       // Convert role slug back to database format (e.g., "guia" -> "Guía", "gerente" -> "Gerente")
       const roleMap: { [key: string]: string } = {
         guia: "Guía",
@@ -187,9 +286,10 @@ function CreateSessionPageContent() {
       const formattedRole =
         roleMap[role.toLowerCase()] ||
         role.charAt(0).toUpperCase() + role.slice(1);
-      console.log("Role mapping:", { urlRole: role, formattedRole });
       setSelectedRole(formattedRole);
-      loadAgencyCode(agency, formattedAgency);
+
+      // Load agency name for display
+      loadAgencyName(agencyCode);
     } else {
       // If no agency or role is provided, redirect back to selection
       router.push("/toma-de-tiempos");
@@ -209,11 +309,163 @@ function CreateSessionPageContent() {
   }, [user, selectedRole]);
 
   useEffect(() => {
-    if (agencyCode && date && user && selectedRole) {
+    if (
+      agencyCode &&
+      date &&
+      user &&
+      user?.email &&
+      selectedRole &&
+      !authLoading
+    ) {
       loadSessions();
       loadAgencyObservation();
     }
-  }, [agencyCode, date, user, selectedRole]);
+  }, [agencyCode, date, user, selectedRole, authLoading]);
+
+  // Ensure agency observations load after sessions finish loading (safety net)
+  useEffect(() => {
+    if (
+      !isLoadingSessions &&
+      !authLoading &&
+      agencyCode &&
+      date &&
+      user?.email &&
+      selectedRole
+    ) {
+      // Load agency observations after sessions are loaded
+      loadAgencyObservation();
+    }
+  }, [isLoadingSessions, authLoading, agencyCode, date, user, selectedRole]);
+
+  // Restore saved state and recently created sessions tracking after sessions are loaded
+  useEffect(() => {
+    if (!isLoadingSessions && sessionCards.length > 0) {
+      // Restore recently created sessions tracking
+      const recentSessionsData = sessionStorage.getItem("tdt_recent_sessions");
+      if (recentSessionsData) {
+        try {
+          const data = JSON.parse(recentSessionsData);
+          // Only restore if within last 30 seconds
+          if (
+            Date.now() - data.timestamp < 30000 &&
+            data.sessionIds.length > 0
+          ) {
+            data.sessionIds.forEach((id: number) => {
+              recentlyCreatedSessionsRef.current.add(id);
+              // Remove from tracking after remaining time
+              const remainingTime = 30000 - (Date.now() - data.timestamp);
+              if (remainingTime > 0) {
+                setTimeout(() => {
+                  recentlyCreatedSessionsRef.current.delete(id);
+                }, remainingTime);
+              }
+            });
+          }
+          // Clear after restoring
+          sessionStorage.removeItem("tdt_recent_sessions");
+        } catch (error) {
+          console.error("Error restoring recent sessions:", error);
+          sessionStorage.removeItem("tdt_recent_sessions");
+        }
+      }
+
+      // Restore dialog state
+      const savedState = sessionStorage.getItem("tdt_create_session_state");
+      if (savedState) {
+        try {
+          const state = JSON.parse(savedState);
+          // Only restore if saved within last 30 seconds (to avoid stale state)
+          if (Date.now() - state.timestamp < 30000) {
+            // Restore agency observation dialog if it was open
+            if (state.isAgencyObservationDialogOpen) {
+              if (state.agencyObservation !== undefined) {
+                setAgencyObservation(state.agencyObservation);
+              }
+              setIsAgencyObservationDialogOpen(true);
+            }
+
+            // Restore main observation dialog if it was open
+            if (state.isDialogOpen || state.editingObservation) {
+              // Find the card that was being edited (if it still exists)
+              if (state.editingObservation) {
+                // Try to find card by ID first
+                let card = sessionCards.find(
+                  (c) => c.id === state.editingObservation.cardId
+                );
+
+                // If not found by ID, try to find by dbId (in case IDs changed after reload)
+                if (!card && state.editingObservation.cardId) {
+                  const savedCardId = state.editingObservation.cardId;
+                  const dbIdMatch = savedCardId.match(/card-(\d+)/);
+                  if (dbIdMatch) {
+                    const savedDbId = parseInt(dbIdMatch[1]);
+                    card = sessionCards.find((c) => c.dbId === savedDbId);
+                  }
+                }
+
+                // If still not found and it was a new observation, try to find the most recent card
+                if (!card && !state.editingObservation.observationId) {
+                  // Find the most recently created card (first in array since sorted newest first)
+                  card = sessionCards[0];
+                }
+
+                if (card) {
+                  // If we found a card but the ID changed, update the editingObservation
+                  const updatedEditingObservation = {
+                    cardId: card.id,
+                    observationId: state.editingObservation.observationId,
+                  };
+
+                  // If editing an existing observation, verify it still exists
+                  if (state.editingObservation.observationId) {
+                    const observation = card.observations.find(
+                      (obs) => obs.id === state.editingObservation.observationId
+                    );
+                    if (!observation) {
+                      // Observation doesn't exist anymore, clear saved state
+                      sessionStorage.removeItem("tdt_create_session_state");
+                      return;
+                    }
+                  }
+
+                  // Restore dialog state
+                  setDialogFormData(state.dialogFormData);
+                  setEditingObservation(updatedEditingObservation);
+                  setIsDialogOpen(true);
+                } else {
+                  // Card doesn't exist anymore, clear saved state
+                  sessionStorage.removeItem("tdt_create_session_state");
+                  return;
+                }
+              } else if (state.isDialogOpen) {
+                // Dialog was open but no editing observation, restore form data
+                if (state.dialogFormData) {
+                  setDialogFormData(state.dialogFormData);
+                }
+                setIsDialogOpen(true);
+              }
+            }
+
+            // Clear saved state after restoring
+            sessionStorage.removeItem("tdt_create_session_state");
+          } else {
+            // State is too old, clear it
+            sessionStorage.removeItem("tdt_create_session_state");
+          }
+        } catch (error) {
+          console.error("Error restoring saved state:", error);
+          sessionStorage.removeItem("tdt_create_session_state");
+        }
+      }
+    }
+  }, [isLoadingSessions, sessionCards]);
+
+  // Load all day observations when dialog opens
+  useEffect(() => {
+    if (isDialogOpen && agencyCode && date && selectedRole) {
+      loadAllDayObservations();
+    }
+  }, [isDialogOpen, agencyCode, date, selectedRole]);
 
   const loadLugares = async () => {
     try {
@@ -242,14 +494,8 @@ function CreateSessionPageContent() {
 
   const loadOptions = async () => {
     if (!selectedRole) {
-      console.log("loadOptions: No selectedRole, returning early");
       return;
     }
-
-    console.log(
-      "loadOptions: Starting to load options for role:",
-      selectedRole
-    );
 
     try {
       // Load options from tdt_options filtered by role
@@ -263,13 +509,7 @@ function CreateSessionPageContent() {
         return;
       }
 
-      console.log("loadOptions: Raw options data from database:", optionsData);
-      console.log("loadOptions: Number of options:", optionsData?.length || 0);
-
       if (!optionsData || optionsData.length === 0) {
-        console.log(
-          "loadOptions: No options data, setting empty cascading options"
-        );
         setCascadingOptions({});
         return;
       }
@@ -283,26 +523,16 @@ function CreateSessionPageContent() {
         const canal = option.canal;
         const descripcion = option.descripción;
 
-        console.log(`loadOptions: Processing option ${index}:`, {
-          canal,
-          descripcion,
-          fullOption: option,
-        });
-
         // If canal exists, add it to the structure
         if (canal) {
           // Initialize the canal entry if it doesn't exist
           if (!cascading[canal]) {
             cascading[canal] = [];
-            console.log(`loadOptions: Created new canal entry: ${canal}`);
           }
 
           // If descripcion exists, add it to the canal's descripciones array
           if (descripcion && !cascading[canal].includes(descripcion)) {
             cascading[canal].push(descripcion);
-            console.log(
-              `loadOptions: Added descripcion "${descripcion}" to canal "${canal}"`
-            );
           }
           // Note: Even if there's no descripcion, the canal is still added to the structure
           // so it will appear in the dropdown
@@ -311,26 +541,19 @@ function CreateSessionPageContent() {
           const placeholderCanal = "Sin canal";
           if (!cascading[placeholderCanal]) {
             cascading[placeholderCanal] = [];
-            console.log(
-              `loadOptions: Created placeholder canal entry: ${placeholderCanal}`
-            );
           }
 
           if (!cascading[placeholderCanal].includes(descripcion)) {
             cascading[placeholderCanal].push(descripcion);
-            console.log(
-              `loadOptions: Added descripcion "${descripcion}" to placeholder canal`
-            );
           }
-        } else {
-          console.log(
-            `loadOptions: Option ${index} has neither canal nor descripcion, skipping`
-          );
         }
       });
 
-      console.log("loadOptions: Final cascading structure:", cascading);
-      console.log("loadOptions: Canal keys:", Object.keys(cascading));
+      // Sort all descripciones arrays alphabetically
+      Object.keys(cascading).forEach((canal) => {
+        cascading[canal].sort();
+      });
+
       setCascadingOptions(cascading);
     } catch (error) {
       console.error("Error loading options:", error);
@@ -338,95 +561,38 @@ function CreateSessionPageContent() {
     }
   };
 
-  const loadAgencyCode = async (
-    agencySlug: string,
-    formattedAgency: string
-  ) => {
-    console.log("loadAgencyCode: Starting", { agencySlug, formattedAgency });
+  const loadAgencyName = async (agencyCode: number) => {
     try {
-      // Load tdt_agencias and lista_agencias to find the agency code
-      const { data: tdtAgenciasData, error: tdtAgenciasError } = await supabase
-        .from("tdt_agencias")
-        .select("*, lista_agencias(*)");
+      // Load lista_agencias to get the agency name for display
+      const { data: listaAgenciaData, error: listaAgenciaError } =
+        await supabase
+          .from("lista_agencias")
+          .select("DESSUCAGE")
+          .eq("CODSUCAGE", agencyCode)
+          .single();
 
-      if (tdtAgenciasError) {
-        console.error("Error loading tdt_agencias:", tdtAgenciasError);
+      if (listaAgenciaError) {
+        console.error("Error loading agency name:", listaAgenciaError);
+        // Set a fallback name if we can't load it
+        setSelectedAgency(`Agencia ${agencyCode}`);
         return;
       }
 
-      console.log("loadAgencyCode: tdt_agencias data", tdtAgenciasData);
-
-      if (!tdtAgenciasData) {
-        console.log("loadAgencyCode: No tdt_agencias data");
-        return;
+      if (listaAgenciaData?.DESSUCAGE) {
+        setSelectedAgency(listaAgenciaData.DESSUCAGE);
+      } else {
+        setSelectedAgency(`Agencia ${agencyCode}`);
       }
-
-      // Find the agency that matches the formatted name
-      const normalizedSlug = agencySlug.toLowerCase();
-      console.log("loadAgencyCode: Looking for match", {
-        normalizedSlug,
-        formattedAgency,
-      });
-
-      for (const tdtAgencia of tdtAgenciasData) {
-        const listaAgencia = tdtAgencia.lista_agencias as ListaAgencia | null;
-        const agencyName = listaAgencia?.DESSUCAGE || "";
-        const codSucAge = listaAgencia?.CODSUCAGE;
-
-        // Check if the agency name matches (case-insensitive)
-        const normalizedAgencyName = agencyName.toLowerCase();
-        const normalizedAgencySlug = normalizedAgencyName.replace(/\s+/g, "-");
-
-        console.log("loadAgencyCode: Checking", {
-          agencyName,
-          codSucAge,
-          tdtAgenciaAgencia: tdtAgencia.agencia,
-          normalizedAgencyName,
-          normalizedAgencySlug,
-          matchesFormatted:
-            normalizedAgencyName === formattedAgency.toLowerCase(),
-          matchesSlug: normalizedAgencySlug === normalizedSlug,
-        });
-
-        if (
-          normalizedAgencyName === formattedAgency.toLowerCase() ||
-          normalizedAgencySlug === normalizedSlug
-        ) {
-          // Use CODSUCAGE directly as it's the primary key
-          const agencyCodeValue = codSucAge ?? tdtAgencia.agencia;
-          console.log(
-            "loadAgencyCode: Match found! Setting agency code to",
-            agencyCodeValue,
-            "(CODSUCAGE)"
-          );
-          setAgencyCode(agencyCodeValue);
-          return;
-        }
-      }
-
-      console.log("loadAgencyCode: No matching agency found");
     } catch (error) {
-      console.error("Error loading agency code:", error);
+      console.error("Error loading agency name:", error);
+      setSelectedAgency(`Agencia ${agencyCode}`);
     }
   };
 
   const loadSessions = async () => {
     if (!agencyCode || !date || !selectedRole || !user?.email) {
-      console.log("loadSessions: Missing required values", {
-        agencyCode,
-        date,
-        selectedRole,
-        userEmail: user?.email,
-      });
       return;
     }
-
-    console.log("loadSessions: Starting to load sessions", {
-      agencyCode,
-      date,
-      selectedRole,
-      userEmail: user.email,
-    });
 
     try {
       setIsLoadingSessions(true);
@@ -444,15 +610,6 @@ function CreateSessionPageContent() {
       const endOfDayUTC = `${date}T23:59:59.999Z`; // This covers until 18:59 Peru time
       const endOfDayUTCNext = `${date}T23:59:59.999Z`; // Actually need next day 04:59:59 UTC
 
-      console.log("loadSessions: Query parameters", {
-        agencia: agencyCode,
-        rol: selectedRole,
-        date,
-        startOfDayPeru,
-        endOfDayPeru,
-        startOfDayUTC,
-      });
-
       // Try querying with Peruvian timezone first
       // Filter by user's email to only show sessions created by the current user
       let { data: sessionsData, error: sessionsError } = await supabase
@@ -465,16 +622,8 @@ function CreateSessionPageContent() {
         .lte("created_at", endOfDayPeru)
         .order("created_at", { ascending: false });
 
-      console.log("loadSessions: Query result (Peru timezone)", {
-        sessionsData: sessionsData?.length || 0,
-        error: sessionsError,
-      });
-
       // If no results, try with a wider range or without timezone
       if ((!sessionsData || sessionsData.length === 0) && !sessionsError) {
-        console.log(
-          "loadSessions: Trying query with date only (no time filter)"
-        );
         // Try querying all sessions for the agency/role and filter by date in JavaScript
         // Filter by user's email to only show sessions created by the current user
         const { data: allSessionsData, error: allSessionsError } =
@@ -487,10 +636,6 @@ function CreateSessionPageContent() {
             .order("created_at", { ascending: false });
 
         if (!allSessionsError && allSessionsData) {
-          console.log(
-            "loadSessions: All sessions for agency/role",
-            allSessionsData.length
-          );
           // Filter by date in JavaScript
           // Sessions are stored in UTC, so we need to check both UTC date and Peru timezone date
           sessionsData = allSessionsData.filter((session) => {
@@ -514,29 +659,12 @@ function CreateSessionPageContent() {
             // So we check if either matches
             const matches = sessionDateUTC === date || sessionDatePeru === date;
 
-            console.log("loadSessions: Comparing dates", {
-              sessionDate: session.created_at,
-              sessionDateUTC,
-              sessionDatePeru,
-              targetDate: date,
-              matches,
-            });
-
             return matches;
           });
-          console.log(
-            "loadSessions: Filtered sessions by date",
-            sessionsData.length
-          );
         } else {
           sessionsError = allSessionsError;
         }
       }
-
-      console.log("loadSessions: Query result", {
-        sessionsData,
-        error: sessionsError,
-      });
 
       if (sessionsError) {
         console.error("Error loading sessions:", sessionsError);
@@ -544,13 +672,10 @@ function CreateSessionPageContent() {
       }
 
       if (!sessionsData || sessionsData.length === 0) {
-        console.log("loadSessions: No sessions found for the given criteria");
         setSessionCards([]);
         setIsLoadingSessions(false);
         return;
       }
-
-      console.log("loadSessions: Found sessions", sessionsData.length);
 
       // Load observations for all sessions
       const sessionIds = sessionsData.map((s) => s.id);
@@ -593,18 +718,70 @@ function CreateSessionPageContent() {
           startTime: session.inicio,
           finishTime: session.fin,
           cliente: session.cliente,
+          created_at: session.created_at, // Store created_at for sorting
         };
       });
 
-      console.log("loadSessions: Transformed cards", cards.length);
+      // Sort cards by creation date (newer first)
+      // Use created_at if available, otherwise use startTime
+      cards.sort((a, b) => {
+        const aTime = a.created_at
+          ? new Date(a.created_at).getTime()
+          : a.startTime
+          ? new Date(a.startTime).getTime()
+          : 0;
+        const bTime = b.created_at
+          ? new Date(b.created_at).getTime()
+          : b.startTime
+          ? new Date(b.startTime).getTime()
+          : 0;
+        return bTime - aTime; // Descending order (newer first)
+      });
+
       setSessionCards(cards);
+
+      // Restore minimizedCards from sessionStorage if available
+      let restoredMinimized: Set<string> | null = null;
+      try {
+        const savedState = sessionStorage.getItem("tdt_create_session_state");
+        if (savedState) {
+          const state = JSON.parse(savedState);
+          if (state.minimizedCards && Array.isArray(state.minimizedCards)) {
+            // Map old card IDs to new card IDs if needed
+            const minimizedSet = new Set<string>();
+            state.minimizedCards.forEach((oldCardId: string) => {
+              // Try to find matching card by old ID
+              let card = cards.find((c) => c.id === oldCardId);
+
+              // If not found, try to match by dbId (extract from old ID)
+              if (!card && oldCardId.startsWith("card-")) {
+                const dbIdMatch = oldCardId.match(/card-(\d+)/);
+                if (dbIdMatch) {
+                  const savedDbId = parseInt(dbIdMatch[1]);
+                  card = cards.find((c) => c.dbId === savedDbId);
+                }
+              }
+
+              if (card) {
+                minimizedSet.add(card.id);
+              }
+            });
+            restoredMinimized = minimizedSet;
+          }
+        }
+      } catch (error) {
+        console.error("Error restoring minimized cards:", error);
+      }
 
       // Set finished cards
       const finished = new Set<string>();
-      // Set all cards as minimized on load
-      const minimized = new Set<string>();
+      // Set minimized cards - use restored state if available, otherwise minimize all
+      const minimized = restoredMinimized || new Set<string>();
       cards.forEach((card) => {
-        minimized.add(card.id);
+        // If no restored state, minimize all cards by default
+        if (!restoredMinimized) {
+          minimized.add(card.id);
+        }
         if (card.finishTime) {
           finished.add(card.id);
         }
@@ -618,52 +795,162 @@ function CreateSessionPageContent() {
     }
   };
 
+  const loadAllDayObservations = async () => {
+    if (!agencyCode || !date || !selectedRole) {
+      return;
+    }
+
+    setIsLoadingDayObservations(true);
+    try {
+      // Calculate date range for the day in Peru timezone
+      const startOfDayPeru = new Date(`${date}T00:00:00-05:00`).toISOString();
+      const endOfDayPeru = new Date(`${date}T23:59:59-05:00`).toISOString();
+
+      // Get all sessions for this day, agency, and role
+      const { data: sessionsData, error: sessionsError } = await supabase
+        .from("tdt_sessions")
+        .select("id")
+        .eq("agencia", agencyCode)
+        .eq("rol", selectedRole)
+        .gte("created_at", startOfDayPeru)
+        .lte("created_at", endOfDayPeru);
+
+      if (sessionsError) {
+        console.error(
+          "Error loading sessions for observations:",
+          sessionsError
+        );
+        setAllDayObservations([]);
+        return;
+      }
+
+      if (!sessionsData || sessionsData.length === 0) {
+        setAllDayObservations([]);
+        return;
+      }
+
+      // Get all observations for these sessions
+      const sessionIds = sessionsData.map((s) => s.id);
+      const { data: observationsData, error: observationsError } =
+        await supabase
+          .from("tdt_observations")
+          .select("*")
+          .in("tdt_session", sessionIds)
+          .order("inicio", { ascending: false });
+
+      if (observationsError) {
+        console.error("Error loading day observations:", observationsError);
+        setAllDayObservations([]);
+        return;
+      }
+
+      setAllDayObservations(observationsData || []);
+    } catch (error) {
+      console.error("Error loading day observations:", error);
+      setAllDayObservations([]);
+    } finally {
+      setIsLoadingDayObservations(false);
+    }
+  };
+
   const loadAgencyObservation = async () => {
     if (!agencyCode || !date || !selectedRole || !user?.email) {
+      console.log("loadAgencyObservation: Missing required params", {
+        agencyCode,
+        date,
+        selectedRole,
+        userEmail: user?.email,
+      });
       return;
     }
 
     try {
-      // Query for existing observation for this agency, date, and role
-      // We need to check if there's an observation for this date
-      // The date is in the URL format (YYYY-MM-DD), but created_at is a timestamp
-      // We'll query all observations for this agency/role and filter by date
-      const { data: observationsData, error: observationsError } =
-        await supabase
-          .from("tdt_agencia_observation")
-          .select("*")
-          .eq("CODSUCAGE", agencyCode)
-          .eq("rol", selectedRole)
-          .eq("created_by", user.email)
-          .order("created_at", { ascending: false });
+      console.log("loadAgencyObservation: Loading observations", {
+        agencyCode,
+        date,
+        selectedRole,
+        userEmail: user.email,
+      });
+
+      // Calculate date range for the day in Peru timezone
+      const startOfDayPeru = new Date(`${date}T00:00:00-05:00`).toISOString();
+      const endOfDayPeru = new Date(`${date}T23:59:59-05:00`).toISOString();
+
+      // First try with date range query
+      let { data: observationsData, error: observationsError } = await supabase
+        .from("tdt_agencia_observation")
+        .select("*")
+        .eq("CODSUCAGE", agencyCode)
+        .eq("rol", selectedRole)
+        .eq("created_by", user.email)
+        .gte("created_at", startOfDayPeru)
+        .lte("created_at", endOfDayPeru)
+        .order("created_at", { ascending: false });
+
+      // If no results, try querying all observations for this agency/role and filter by date in JavaScript
+      if (
+        (!observationsData || observationsData.length === 0) &&
+        !observationsError
+      ) {
+        console.log(
+          "loadAgencyObservation: No results with date range, trying wider query"
+        );
+        const { data: allObservationsData, error: allObservationsError } =
+          await supabase
+            .from("tdt_agencia_observation")
+            .select("*")
+            .eq("CODSUCAGE", agencyCode)
+            .eq("rol", selectedRole)
+            .eq("created_by", user.email)
+            .order("created_at", { ascending: false });
+
+        if (!allObservationsError && allObservationsData) {
+          // Filter by date in JavaScript (similar to how we filter sessions)
+          observationsData = allObservationsData.filter((obs) => {
+            if (!obs.created_at) return false;
+            const obsDate = new Date(obs.created_at);
+
+            // Check UTC date (how it's stored)
+            const obsDateUTC = obsDate.toISOString().split("T")[0];
+
+            // Check Peruvian timezone date (how user sees it)
+            const obsDatePeru = obsDate.toLocaleDateString("en-CA", {
+              timeZone: "America/Lima",
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+            });
+
+            // Check if either matches
+            const matches = obsDateUTC === date || obsDatePeru === date;
+            return matches;
+          });
+        } else {
+          observationsError = allObservationsError;
+        }
+      }
 
       if (observationsError) {
         console.error("Error loading agency observation:", observationsError);
         return;
       }
 
-      if (observationsData && observationsData.length > 0) {
-        // Filter by date in JavaScript (similar to how we filter sessions)
-        const matchingObservation = observationsData.find((obs) => {
-          if (!obs.created_at) return false;
-          const obsDate = new Date(obs.created_at);
-          const obsDatePeru = obsDate.toLocaleDateString("en-CA", {
-            timeZone: "America/Lima",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-          });
-          return obsDatePeru === date;
-        });
+      console.log("loadAgencyObservation: Found observations", {
+        count: observationsData?.length || 0,
+        observations: observationsData,
+      });
 
-        if (matchingObservation) {
-          setAgencyObservation(matchingObservation.observaciones || "");
-          setAgencyObservationId(matchingObservation.id);
-        } else {
-          setAgencyObservation("");
-          setAgencyObservationId(null);
-        }
+      if (observationsData && observationsData.length > 0) {
+        // Get the most recent observation (first in array since sorted descending)
+        const matchingObservation = observationsData[0];
+        console.log(
+          "loadAgencyObservation: Setting observation",
+          matchingObservation
+        );
+        setAgencyObservation(matchingObservation.observaciones || "");
+        setAgencyObservationId(matchingObservation.id);
       } else {
+        console.log("loadAgencyObservation: No matching observations found");
         setAgencyObservation("");
         setAgencyObservationId(null);
       }
@@ -773,15 +1060,51 @@ function CreateSessionPageContent() {
     router.push("/toma-de-tiempos");
   };
 
-  const handleCreateSession = async () => {
-    if (!agencyCode || !selectedRole) return;
+  const handleCreateSession = useCallback(async () => {
+    console.log("handleCreateSession called", { agencyCode, selectedRole });
+
+    // Prevent duplicate creation
+    if (isCreatingSessionRef.current) {
+      console.log(
+        "handleCreateSession: Already creating a session, ignoring duplicate call"
+      );
+      return;
+    }
+
+    if (!agencyCode || !selectedRole) {
+      console.log("handleCreateSession: Missing agencyCode or selectedRole");
+      return;
+    }
+
+    // Check for recently created sessions to prevent duplicates
+    const recentSessionsData = sessionStorage.getItem("tdt_recent_sessions");
+    if (recentSessionsData) {
+      try {
+        const data = JSON.parse(recentSessionsData);
+        // If sessions were created within last 5 seconds, don't create another
+        if (Date.now() - data.timestamp < 5000 && data.sessionIds.length > 0) {
+          console.log(
+            "handleCreateSession: Recent session detected, preventing duplicate"
+          );
+          return;
+        }
+      } catch (error) {
+        console.error("Error checking recent sessions:", error);
+      }
+    }
+
+    isCreatingSessionRef.current = true;
 
     try {
-      // Collapse all existing session cards
+      console.log("handleCreateSession: Starting try block");
+      // Collapse all existing session cards using refs for current state
+      const currentCards = sessionCardsRef.current;
+      const currentFinished = finishedCardsRef.current;
+      console.log("handleCreateSession: Current cards", currentCards.length);
       setMinimizedCards((prev) => {
         const newSet = new Set(prev);
-        sessionCards.forEach((card) => {
-          if (!finishedCards.has(card.id)) {
+        currentCards.forEach((card) => {
+          if (!currentFinished.has(card.id)) {
             // Only collapse if not finished (finished ones can't be collapsed anyway)
             newSet.add(card.id);
           }
@@ -791,45 +1114,159 @@ function CreateSessionPageContent() {
 
       // Create session in database
       const startTime = getPeruvianTimeISO();
+      console.log("handleCreateSession: startTime", startTime);
       if (!user?.email) {
+        console.log("handleCreateSession: No user email");
         alert("Error: No se pudo obtener el email del usuario");
         return;
       }
 
-      const { data: newSession, error: sessionError } = await supabase
+      // Check if a session was just created (prevent duplicates)
+      const recentSessions = currentCards.filter((card) => {
+        if (!card.startTime) return false;
+        const cardTime = new Date(card.startTime).getTime();
+        const now = Date.now();
+        // Check if session was created within last 5 seconds
+        return Math.abs(now - cardTime) < 5000;
+      });
+
+      if (recentSessions.length > 0) {
+        console.log(
+          "handleCreateSession: Recent session detected, preventing duplicate"
+        );
+        alert(
+          "Una sesión fue creada recientemente. Por favor, espera unos segundos."
+        );
+        isCreatingSessionRef.current = false;
+        return;
+      }
+
+      // Calculate cliente number based on existing sessions for this date
+      const existingSessionsCount = currentCards.length;
+      const clienteNumber = existingSessionsCount + 1;
+      const cliente = `Cliente ${clienteNumber}`;
+      console.log("handleCreateSession: About to insert session", {
+        agencia: agencyCode,
+        rol: selectedRole,
+        inicio: startTime,
+        cliente,
+        created_by: user.email,
+      });
+
+      // Add a small delay to ensure browser is ready after tab switch
+      // If tab was recently visible, test the connection first with a simple query
+      const wasRecentlyVisible =
+        document.visibilityState === "visible" &&
+        Date.now() - lastVisibleRef.current < 10000;
+
+      if (wasRecentlyVisible) {
+        // Test connection with a simple query to wake it up
+        console.log(
+          "handleCreateSession: Testing connection after tab switch..."
+        );
+        try {
+          await Promise.race([
+            supabase.from("tdt_sessions").select("id").limit(1),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("Connection test timeout")),
+                2000
+              )
+            ),
+          ]);
+          console.log("handleCreateSession: Connection test successful");
+        } catch (error) {
+          console.warn(
+            "handleCreateSession: Connection test failed, proceeding anyway",
+            error
+          );
+        }
+        // Small delay after connection test
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } else if (document.visibilityState === "visible") {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      // Create session with cliente included in the initial insert
+      console.log("handleCreateSession: Awaiting database insert...", {
+        wasRecentlyVisible,
+        timeSinceVisible: Date.now() - lastVisibleRef.current,
+      });
+
+      const insertPromise = supabase
         .from("tdt_sessions")
         .insert({
           agencia: agencyCode,
           rol: selectedRole,
           inicio: startTime,
           fin: null,
+          cliente: cliente,
           created_by: user.email,
         })
         .select()
         .single();
 
-      if (sessionError) {
-        console.error("Error creating session:", sessionError);
-        alert("Error al crear la sesión");
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Database insert timeout after 10 seconds")),
+          10000
+        )
+      );
+
+      let newSession, sessionError;
+      try {
+        const result = await Promise.race([insertPromise, timeoutPromise]);
+        newSession = result.data;
+        sessionError = result.error;
+        console.log("handleCreateSession: Database insert completed", {
+          newSession,
+          sessionError,
+        });
+      } catch (error) {
+        console.error(
+          "handleCreateSession: Database insert failed or timed out",
+          error
+        );
+        alert("Error al crear la sesión. Por favor, intenta de nuevo.");
+        isCreatingSessionRef.current = false;
         return;
       }
 
-      // Calculate cliente number based on existing sessions for this date
-      const existingSessionsCount = sessionCards.length;
-      const clienteNumber = existingSessionsCount + 1;
-      const cliente = `Cliente ${clienteNumber}`;
+      if (sessionError) {
+        console.error("Error creating session:", sessionError);
+        alert("Error al crear la sesión");
+        isCreatingSessionRef.current = false;
+        return;
+      }
 
-      // Update the session with the cliente
-      const { data: updatedSession, error: updateError } = await supabase
+      // Update the cliente value to use the database ID
+      const clienteWithId = `Cliente ${newSession.id}`;
+      const updatePromise = supabase
         .from("tdt_sessions")
-        .update({ cliente })
-        .eq("id", newSession.id)
-        .select()
-        .single();
+        .update({ cliente: clienteWithId })
+        .eq("id", newSession.id);
 
-      if (updateError) {
-        console.error("Error updating session cliente:", updateError);
-        // Continue anyway, cliente will be null
+      const updateTimeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Database update timeout after 10 seconds")),
+          10000
+        )
+      );
+
+      let updateError;
+      try {
+        const updateResult = await Promise.race([
+          updatePromise,
+          updateTimeoutPromise,
+        ]);
+        updateError = updateResult.error;
+        if (updateError) {
+          console.warn("Error updating cliente:", updateError);
+          // Continue anyway, we'll use the ID-based cliente in local state
+        }
+      } catch (error) {
+        console.warn("Error updating cliente:", error);
+        // Continue anyway, we'll use the ID-based cliente in local state
       }
 
       const newCard: SessionCard = {
@@ -838,9 +1275,20 @@ function CreateSessionPageContent() {
         observations: [],
         startTime: newSession.inicio,
         finishTime: null,
-        cliente: updatedSession?.cliente || cliente,
+        cliente: clienteWithId,
+        created_at: newSession.created_at || new Date().toISOString(),
       };
-      setSessionCards([...sessionCards, newCard]);
+
+      // Track recently created session to prevent duplicates on reload
+      if (newSession.id) {
+        recentlyCreatedSessionsRef.current.add(newSession.id);
+        // Remove from tracking after 30 seconds
+        setTimeout(() => {
+          recentlyCreatedSessionsRef.current.delete(newSession.id);
+        }, 30000);
+      }
+
+      setSessionCards((prev) => [newCard, ...prev]);
 
       // Open dialog to create first observation
       setEditingObservation({ cardId: newCard.id, observationId: null });
@@ -859,11 +1307,15 @@ function CreateSessionPageContent() {
       setTimeout(() => {
         scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
       }, 0);
+
+      // Clear the flag after successful creation
+      isCreatingSessionRef.current = false;
     } catch (error) {
       console.error("Error creating session:", error);
       alert("Error al crear la sesión");
+      isCreatingSessionRef.current = false;
     }
-  };
+  }, [agencyCode, selectedRole, user?.email]);
 
   const handleToggleMinimize = (cardId: string) => {
     // Allow toggling even if card is finished (users can view observations)
@@ -879,22 +1331,103 @@ function CreateSessionPageContent() {
   };
 
   const handleFinishSession = async (cardId: string) => {
-    // Check if all observations have started
+    console.log("handleFinishSession called", cardId);
+    // Check if all observations have started using current state
+    const card = sessionCards.find((c) => c.id === cardId);
+    console.log("handleFinishSession: Found card", {
+      card,
+      cardId,
+      sessionCardsLength: sessionCards.length,
+    });
+    if (!card || !card.dbId) {
+      console.log("handleFinishSession: Card not found or no dbId", {
+        card,
+        cardId,
+      });
+      return;
+    }
+
     if (!canFinishCard(cardId)) {
+      console.log("handleFinishSession: Cannot finish card", cardId);
       return; // Don't finish if not all observations have started
     }
 
-    const card = sessionCards.find((c) => c.id === cardId);
-    if (!card || !card.dbId) return;
-
     try {
+      console.log("handleFinishSession: Starting try block");
       const finishTimestamp = getPeruvianTimeISO();
+      console.log("handleFinishSession: finishTimestamp", finishTimestamp);
+
+      // Add a small delay to ensure browser is ready after tab switch
+      // If tab was recently visible, test the connection first with a simple query
+      const wasRecentlyVisible =
+        document.visibilityState === "visible" &&
+        Date.now() - lastVisibleRef.current < 10000;
+
+      if (wasRecentlyVisible) {
+        // Test connection with a simple query to wake it up
+        console.log(
+          "handleFinishSession: Testing connection after tab switch..."
+        );
+        try {
+          await Promise.race([
+            supabase.from("tdt_sessions").select("id").limit(1),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("Connection test timeout")),
+                2000
+              )
+            ),
+          ]);
+          console.log("handleFinishSession: Connection test successful");
+        } catch (error) {
+          console.warn(
+            "handleFinishSession: Connection test failed, proceeding anyway",
+            error
+          );
+        }
+        // Small delay after connection test
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } else if (document.visibilityState === "visible") {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
 
       // Update session in database
-      const { error: sessionError } = await supabase
+      console.log("handleFinishSession: About to update session in database", {
+        dbId: card.dbId,
+        fin: finishTimestamp,
+        wasRecentlyVisible,
+        timeSinceVisible: Date.now() - lastVisibleRef.current,
+      });
+      console.log("handleFinishSession: Awaiting database update...");
+
+      // Add timeout to detect hanging requests
+      const updatePromise = supabase
         .from("tdt_sessions")
         .update({ fin: finishTimestamp })
         .eq("id", card.dbId);
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Database update timeout after 10 seconds")),
+          10000
+        )
+      );
+
+      let sessionError;
+      try {
+        const result = await Promise.race([updatePromise, timeoutPromise]);
+        sessionError = result.error;
+        console.log("handleFinishSession: Database update completed", {
+          sessionError,
+        });
+      } catch (error) {
+        console.error(
+          "handleFinishSession: Database update failed or timed out",
+          error
+        );
+        alert("Error al finalizar la sesión. Por favor, intenta de nuevo.");
+        return;
+      }
 
       if (sessionError) {
         console.error("Error finishing session:", sessionError);
@@ -923,9 +1456,9 @@ function CreateSessionPageContent() {
         }
       }
 
-      // Update local state
-      setSessionCards(
-        sessionCards.map((c) =>
+      // Update local state using functional updates
+      setSessionCards((prevCards) =>
+        prevCards.map((c) =>
           c.id === cardId
             ? {
                 ...c,
@@ -994,22 +1527,114 @@ function CreateSessionPageContent() {
   };
 
   const handleSaveObservation = async () => {
-    if (!editingObservation) return;
+    console.log("handleSaveObservation called", editingObservation);
+
+    // Prevent duplicate saves
+    if (isSavingObservationRef.current) {
+      console.log(
+        "handleSaveObservation: Already saving an observation, ignoring duplicate call"
+      );
+      return;
+    }
+
+    console.log(
+      "handleSaveObservation: sessionCards length",
+      sessionCards.length
+    );
+    console.log("handleSaveObservation: dialogFormData", dialogFormData);
+    if (!editingObservation) {
+      console.log("handleSaveObservation: No editingObservation");
+      return;
+    }
 
     const { cardId, observationId } = editingObservation;
+
+    isSavingObservationRef.current = true;
+    console.log("handleSaveObservation: Looking for card", cardId);
     const card = sessionCards.find((c) => c.id === cardId);
-    if (!card || !card.dbId) return;
+    console.log("handleSaveObservation: Found card", card);
+    if (!card || !card.dbId) {
+      console.log("handleSaveObservation: Card not found or no dbId", {
+        card,
+        cardId,
+        allCardIds: sessionCards.map((c) => c.id),
+      });
+      return;
+    }
 
     try {
+      // If tab was recently visible, test the connection first with a simple query
+      const wasRecentlyVisible =
+        document.visibilityState === "visible" &&
+        Date.now() - lastVisibleRef.current < 10000;
+
+      if (wasRecentlyVisible) {
+        // Test connection with a simple query to wake it up
+        console.log(
+          "handleSaveObservation: Testing connection after tab switch..."
+        );
+        try {
+          await Promise.race([
+            supabase.from("tdt_observations").select("id").limit(1),
+            new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error("Connection test timeout")),
+                2000
+              )
+            ),
+          ]);
+          console.log("handleSaveObservation: Connection test successful");
+        } catch (error) {
+          console.warn(
+            "handleSaveObservation: Connection test failed, proceeding anyway",
+            error
+          );
+        }
+        // Small delay after connection test
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      } else if (document.visibilityState === "visible") {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+
+      console.log("handleSaveObservation: Starting try block", {
+        observationId,
+        card,
+        wasRecentlyVisible,
+        timeSinceVisible: Date.now() - lastVisibleRef.current,
+      });
       if (observationId) {
         // Editing existing observation
+        console.log("handleSaveObservation: Editing existing observation");
         const observation = card.observations.find(
           (obs) => obs.id === observationId
         );
-        if (!observation || !observation.dbId) return;
+        console.log("handleSaveObservation: Found observation", observation);
+        if (!observation || !observation.dbId) {
+          console.log(
+            "handleSaveObservation: Observation not found or no dbId"
+          );
+          isSavingObservationRef.current = false;
+          return;
+        }
 
         // Update observation in database
-        const { error: updateError } = await supabase
+        console.log(
+          "handleSaveObservation: About to update observation in database",
+          {
+            dbId: observation.dbId,
+            updateData: {
+              lugar: dialogFormData.firstDropdown || null,
+              canal: dialogFormData.secondDropdown || null,
+              descripcion: dialogFormData.thirdDropdown || null,
+              inicio: dialogFormData.startTime || observation.startTime,
+              comentarios: dialogFormData.comentarios || null,
+              posicion: dialogFormData.posicion || null,
+              altura: dialogFormData.altura || null,
+            },
+          }
+        );
+
+        const updatePromise = supabase
           .from("tdt_observations")
           .update({
             lugar: dialogFormData.firstDropdown || null,
@@ -1022,15 +1647,44 @@ function CreateSessionPageContent() {
           })
           .eq("id", observation.dbId);
 
-        if (updateError) {
-          console.error("Error updating observation:", updateError);
-          alert("Error al actualizar la observación");
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Database update timeout after 10 seconds")),
+            10000
+          )
+        );
+
+        console.log("handleSaveObservation: Awaiting database update...");
+        let updateError;
+        try {
+          const result = await Promise.race([updatePromise, timeoutPromise]);
+          updateError = result.error;
+          console.log("handleSaveObservation: Database update completed", {
+            updateError,
+          });
+        } catch (error) {
+          console.error(
+            "handleSaveObservation: Database update failed or timed out",
+            error
+          );
+          alert(
+            "Error al actualizar la observación. Por favor, intenta de nuevo."
+          );
+          isSavingObservationRef.current = false;
           return;
         }
 
-        // Update local state
-        setSessionCards(
-          sessionCards.map((c) =>
+        if (updateError) {
+          console.error("Error updating observation:", updateError);
+          alert("Error al actualizar la observación");
+          isSavingObservationRef.current = false;
+          return;
+        }
+
+        // Update local state using functional updates
+        console.log("handleSaveObservation: About to update local state");
+        setSessionCards((prevCards) =>
+          prevCards.map((c) =>
             c.id === cardId
               ? {
                   ...c,
@@ -1052,12 +1706,60 @@ function CreateSessionPageContent() {
               : c
           )
         );
+        console.log(
+          "handleSaveObservation: Local state updated, closing dialog"
+        );
+        setIsDialogOpen(false);
+        setEditingObservation(null);
       } else {
         // Creating new observation
+        console.log("handleSaveObservation: Creating new observation");
+
+        // Check if a similar observation was just created for this card (prevent duplicates)
+        const recentObservations = card.observations.filter((obs) => {
+          if (!obs.startTime) return false;
+          const obsTime = new Date(obs.startTime).getTime();
+          const now = Date.now();
+          // Check if observation was created within last 5 seconds
+          return Math.abs(now - obsTime) < 5000;
+        });
+
+        if (recentObservations.length > 0) {
+          // Check if any recent observation has the same data
+          const hasDuplicate = recentObservations.some(
+            (obs) =>
+              obs.firstDropdown === dialogFormData.firstDropdown &&
+              obs.secondDropdown === dialogFormData.secondDropdown &&
+              obs.thirdDropdown === dialogFormData.thirdDropdown
+          );
+
+          if (hasDuplicate) {
+            console.log(
+              "handleSaveObservation: Duplicate observation detected, preventing creation"
+            );
+            alert("Esta observación ya fue creada recientemente.");
+            isSavingObservationRef.current = false;
+            return;
+          }
+        }
+
         const startTime = dialogFormData.startTime || getPeruvianTimeISO();
+        console.log("handleSaveObservation: startTime", startTime);
+        console.log("handleSaveObservation: dialogFormData values", {
+          firstDropdown: dialogFormData.firstDropdown,
+          secondDropdown: dialogFormData.secondDropdown,
+          thirdDropdown: dialogFormData.thirdDropdown,
+        });
 
         // Create observation in database
-        const { data: newObservation, error: insertError } = await supabase
+        console.log("handleSaveObservation: About to insert observation", {
+          tdt_session: card.dbId,
+          lugar: dialogFormData.firstDropdown,
+          canal: dialogFormData.secondDropdown,
+          descripcion: dialogFormData.thirdDropdown,
+        });
+
+        const insertPromise = supabase
           .from("tdt_observations")
           .insert({
             tdt_session: card.dbId,
@@ -1073,11 +1775,43 @@ function CreateSessionPageContent() {
           .select()
           .single();
 
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Database insert timeout after 10 seconds")),
+            10000
+          )
+        );
+
+        console.log("handleSaveObservation: Awaiting database insert...");
+        let newObservation, insertError;
+        try {
+          const result = await Promise.race([insertPromise, timeoutPromise]);
+          newObservation = result.data;
+          insertError = result.error;
+          console.log("handleSaveObservation: Database insert completed", {
+            newObservation,
+            insertError,
+          });
+        } catch (error) {
+          console.error(
+            "handleSaveObservation: Database insert failed or timed out",
+            error
+          );
+          alert("Error al crear la observación. Por favor, intenta de nuevo.");
+          isSavingObservationRef.current = false;
+          return;
+        }
+
         if (insertError) {
           console.error("Error creating observation:", insertError);
           alert("Error al crear la observación");
+          isSavingObservationRef.current = false;
           return;
         }
+        console.log(
+          "handleSaveObservation: Observation created successfully",
+          newObservation
+        );
 
         const newObs: Observation = {
           id: `obs-${newObservation.id}`,
@@ -1093,9 +1827,9 @@ function CreateSessionPageContent() {
           altura: dialogFormData.altura || null,
         };
 
-        // Update local state
-        setSessionCards(
-          sessionCards.map((c) =>
+        // Update local state using functional updates
+        setSessionCards((prevCards) =>
+          prevCards.map((c) =>
             c.id === cardId
               ? { ...c, observations: [...c.observations, newObs] }
               : c
@@ -1104,6 +1838,7 @@ function CreateSessionPageContent() {
       }
 
       // Close dialog and reset
+      console.log("handleSaveObservation: Closing dialog and resetting");
       setIsDialogOpen(false);
       setEditingObservation(null);
       setDialogFormData({
@@ -1115,9 +1850,16 @@ function CreateSessionPageContent() {
         posicion: "",
         altura: "",
       });
+      console.log("handleSaveObservation: Completed successfully");
+      // Refresh the day observations list
+      if (isDialogOpen && agencyCode && date && selectedRole) {
+        loadAllDayObservations();
+      }
+      isSavingObservationRef.current = false;
     } catch (error) {
       console.error("Error saving observation:", error);
       alert("Error al guardar la observación");
+      isSavingObservationRef.current = false;
     }
   };
 
@@ -1412,11 +2154,6 @@ function CreateSessionPageContent() {
   // Get second level options (canal) - independent of lugar selection
   const getSecondLevelOptions = useMemo(() => {
     const options = Object.keys(cascadingOptions).sort();
-    console.log(
-      "Computing second level options from cascadingOptions:",
-      cascadingOptions
-    );
-    console.log("Result:", options);
     return options;
   }, [cascadingOptions]);
 
@@ -1425,8 +2162,9 @@ function CreateSessionPageContent() {
     if (!canalValue || !cascadingOptions[canalValue]) {
       return [];
     }
-    // Get descripciones directly for the selected canal
-    return cascadingOptions[canalValue] || [];
+    // Get descripciones directly for the selected canal, sorted alphabetically
+    const options = cascadingOptions[canalValue] || [];
+    return [...options].sort();
   };
 
   // Get dialog second level options (canal) - use the memoized value directly
@@ -1439,21 +2177,21 @@ function CreateSessionPageContent() {
 
   // Convert arrays to ComboboxOption format
   const lugarOptions: ComboboxOption[] = useMemo(() => {
-    return lugares.map((lugar) => ({
+    return [...lugares].sort().map((lugar) => ({
       value: lugar,
       label: lugar,
     }));
   }, [lugares]);
 
   const canalOptions: ComboboxOption[] = useMemo(() => {
-    return dialogSecondLevelOptions.map((canal) => ({
+    return [...dialogSecondLevelOptions].sort().map((canal) => ({
       value: canal,
       label: canal,
     }));
   }, [dialogSecondLevelOptions]);
 
   const descripcionOptions: ComboboxOption[] = useMemo(() => {
-    return dialogThirdLevelOptions.map((descripcion) => ({
+    return [...dialogThirdLevelOptions].sort().map((descripcion) => ({
       value: descripcion,
       label: descripcion,
     }));
@@ -1497,7 +2235,7 @@ function CreateSessionPageContent() {
         <div className="h-full w-full max-w-4xl px-6 py-6">
           {/* Session Cards */}
           <div className="w-full space-y-4">
-            {[...sessionCards].reverse().map((card, index) => {
+            {sessionCards.map((card, index) => {
               const isMinimized = minimizedCards.has(card.id);
               const isFinished = finishedCards.has(card.id);
               return (
@@ -1525,21 +2263,32 @@ function CreateSessionPageContent() {
                         }}
                       >
                         <CardTitle className="text-lg">
-                          {card.cliente ||
-                            `Cliente ${sessionCards.length - index}`}
+                          {card.dbId
+                            ? `Cliente ${card.dbId}`
+                            : `Cliente ${sessionCards.length - index}`}
                         </CardTitle>
                       </div>
                       <div className="flex items-center gap-2">
                         {isMinimized && !isFinished && (
                           <Button
+                            type="button"
                             onClick={(e) => {
+                              console.log("Finalizar clicked", card.id, e);
                               e.stopPropagation();
+                              e.preventDefault();
+                              handleFinishSession(card.id);
+                            }}
+                            onMouseUp={(e) => {
+                              console.log("Finalizar mouseUp", card.id, e);
+                              e.stopPropagation();
+                              e.preventDefault();
                               handleFinishSession(card.id);
                             }}
                             variant="default"
                             size="sm"
                             className="h-7 text-xs"
                             disabled={!canFinishCard(card.id)}
+                            style={{ pointerEvents: "auto" }}
                           >
                             Finalizar
                           </Button>
@@ -1704,9 +2453,30 @@ function CreateSessionPageContent() {
                           )}
                           {card.observations.length > 0 && !isFinished && (
                             <Button
-                              onClick={() => handleFinishSession(card.id)}
+                              type="button"
+                              onClick={(e) => {
+                                console.log(
+                                  "Finalizar Sesión clicked",
+                                  card.id,
+                                  e
+                                );
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleFinishSession(card.id);
+                              }}
+                              onMouseUp={(e) => {
+                                console.log(
+                                  "Finalizar Sesión mouseUp",
+                                  card.id,
+                                  e
+                                );
+                                e.stopPropagation();
+                                e.preventDefault();
+                                handleFinishSession(card.id);
+                              }}
                               className="w-full"
                               disabled={!canFinishCard(card.id)}
+                              style={{ pointerEvents: "auto" }}
                             >
                               Finalizar Sesión
                             </Button>
@@ -1732,17 +2502,36 @@ function CreateSessionPageContent() {
       </div>
 
       {/* Fixed bottom buttons */}
-      <div className="bg-white border-t border-gray-200 shadow-lg z-50">
+      <div
+        className="bg-white border-t border-gray-200 shadow-lg z-50"
+        style={{ position: "relative", zIndex: 50 }}
+      >
         <div className="max-w-4xl mx-auto px-2 sm:px-6 py-4">
           <div className="flex gap-2 sm:gap-3">
-            <Button
-              onClick={handleCreateSession}
-              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white"
-              size="lg"
+            <button
+              type="button"
+              onClick={(e) => {
+                console.log("Crear Sesión clicked (native)", e);
+                e.stopPropagation();
+                e.preventDefault();
+                handleCreateSession();
+              }}
+              onMouseUp={(e) => {
+                console.log("Crear Sesión mouseUp (native)", e);
+                e.stopPropagation();
+                e.preventDefault();
+                handleCreateSession();
+              }}
+              className="flex-1 bg-gray-900 hover:bg-gray-800 text-white inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors h-10 rounded-md px-8"
+              style={{
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 51,
+              }}
             >
               <Plus size={14} className="sm:size-4 mr-1 sm:mr-2 shrink-0" />
               <span className="text-xs sm:text-base">Crear Sesión</span>
-            </Button>
+            </button>
             <Button
               onClick={() => setIsAgencyObservationDialogOpen(true)}
               variant="outline"
@@ -1777,6 +2566,55 @@ function CreateSessionPageContent() {
               Selecciona las opciones en cascada para la observación
             </DialogDescription>
           </DialogHeader>
+          {/* Previously Saved Observations */}
+          {allDayObservations.length > 0 && (
+            <div className="border-t border-b py-3 max-h-48 overflow-y-auto">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">
+                Observaciones guardadas hoy ({allDayObservations.length})
+              </h4>
+              <div className="space-y-2">
+                {allDayObservations.map((obs) => (
+                  <div
+                    key={obs.id}
+                    className="text-xs bg-gray-50 p-2 rounded border border-gray-200"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 truncate">
+                          {obs.lugar || "—"} / {obs.canal || "—"} /{" "}
+                          {obs.descripcion || "—"}
+                        </div>
+                        {obs.comentarios && (
+                          <div className="text-gray-600 mt-1 line-clamp-2">
+                            {obs.comentarios}
+                          </div>
+                        )}
+                        {obs.posicion && (
+                          <div className="text-gray-500 mt-1">
+                            Posición: {obs.posicion}
+                            {obs.altura && ` - ${obs.altura}`}
+                          </div>
+                        )}
+                        <div className="text-gray-400 mt-1 text-[10px]">
+                          {obs.inicio
+                            ? new Date(obs.inicio).toLocaleTimeString("es-PE", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {isLoadingDayObservations && (
+            <div className="border-t border-b py-3 text-sm text-gray-500 text-center">
+              Cargando observaciones...
+            </div>
+          )}
           <div className="space-y-4 py-4">
             {/* First Dropdown - Lugar */}
             <div>
@@ -1940,12 +2778,29 @@ function CreateSessionPageContent() {
             ) : (
               <div className="w-full sm:w-auto" />
             )}
-            <Button
-              onClick={handleSaveObservation}
-              className="w-full sm:w-auto bg-gray-900 hover:bg-gray-800 text-white"
+            <button
+              type="button"
+              onClick={(e) => {
+                console.log("Guardar clicked (native)", e);
+                e.stopPropagation();
+                e.preventDefault();
+                handleSaveObservation();
+              }}
+              onMouseUp={(e) => {
+                console.log("Guardar mouseUp (native)", e);
+                e.stopPropagation();
+                e.preventDefault();
+                handleSaveObservation();
+              }}
+              className="w-full sm:w-auto bg-gray-900 hover:bg-gray-800 text-white inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors h-9 px-4 py-2"
+              style={{
+                pointerEvents: "auto",
+                position: "relative",
+                zIndex: 51,
+              }}
             >
               Guardar
-            </Button>
+            </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

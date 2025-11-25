@@ -29,15 +29,27 @@ interface AgencyOption {
 function TomaDeTiemposPageContent() {
   const { user, loading: authLoading } = useAuth();
   const router = useRouter();
-  const [selectedAgency, setSelectedAgency] = useState<string>("");
-  const [selectedRole, setSelectedRole] = useState<string>("");
+  // Initialize with saved values from localStorage
+  const [selectedAgency, setSelectedAgency] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("tdt_last_agency") || "";
+    }
+    return "";
+  });
+  const [selectedRole, setSelectedRole] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("tdt_last_role") || "";
+    }
+    return "";
+  });
   const [agencies, setAgencies] = useState<AgencyOption[]>([]);
   const [isLoadingAgencies, setIsLoadingAgencies] = useState(true);
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
 
   // Convert agencies to ComboboxOption format
+  // Use CODSUCAGE as value, but display the name
   const agencyOptions: ComboboxOption[] = agencies.map((agency) => ({
-    value: agency.name,
+    value: agency.codSucAge.toString(),
     label: agency.name,
   }));
 
@@ -155,20 +167,54 @@ function TomaDeTiemposPageContent() {
     }
   }, [user, authLoading, router, loadAgencies]);
 
+  // Validate and restore saved agency when agencies are loaded
+  useEffect(() => {
+    if (agencies.length > 0 && selectedAgency) {
+      // Check if the saved agency still exists in the list
+      const agencyExists = agencies.some(
+        (agency) => agency.codSucAge.toString() === selectedAgency
+      );
+      if (!agencyExists) {
+        // Agency no longer exists, clear the selection
+        setSelectedAgency("");
+        localStorage.removeItem("tdt_last_agency");
+      }
+    }
+  }, [agencies, selectedAgency]);
+
+  // Save selections to localStorage when they change
+  const handleAgencyChange = (value: string) => {
+    setSelectedAgency(value);
+    if (value) {
+      localStorage.setItem("tdt_last_agency", value);
+    } else {
+      localStorage.removeItem("tdt_last_agency");
+    }
+  };
+
+  const handleRoleChange = (value: string) => {
+    setSelectedRole(value);
+    if (value) {
+      localStorage.setItem("tdt_last_role", value);
+    } else {
+      localStorage.removeItem("tdt_last_role");
+    }
+  };
+
   const handleContinue = () => {
     if (selectedAgency && selectedRole) {
       // Get today's date in YYYY-MM-DD format
       const today = new Date();
       const dateString = today.toISOString().split("T")[0];
       // Navigate to create session page with selected agency, date, and role
-      // selectedAgency is the agency name, convert it to slug
-      const agencySlug = selectedAgency.toLowerCase().replace(/\s+/g, "-");
+      // selectedAgency is now CODSUCAGE (stored as string), use it directly
+      const agencyCode = selectedAgency;
       // Convert role to URL-safe slug (Guía -> guia, Gerente -> gerente)
       const roleSlug = selectedRole.toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, ""); // Remove accents
       router.push(
-        `/toma-de-tiempos/${agencySlug}/${dateString}/${roleSlug}/create-session`
+        `/toma-de-tiempos/${agencyCode}/${dateString}/${roleSlug}/create-session`
       );
     }
   };
@@ -229,7 +275,7 @@ function TomaDeTiemposPageContent() {
               <Combobox
                 options={agencyOptions}
                 value={selectedAgency}
-                onValueChange={setSelectedAgency}
+                onValueChange={handleAgencyChange}
                 placeholder={
                   agencies.length === 0
                     ? "No hay agencias disponibles"
@@ -262,7 +308,7 @@ function TomaDeTiemposPageContent() {
               <Combobox
                 options={roleOptions}
                 value={selectedRole}
-                onValueChange={setSelectedRole}
+                onValueChange={handleRoleChange}
                 placeholder="Seleccionar rol..."
                 searchPlaceholder="Buscar rol..."
                 emptyText="No se encontraron roles"

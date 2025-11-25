@@ -376,7 +376,7 @@ export type Database = {
           fin: string | null
           id: number
           inicio: string | null
-          lugar: string
+          lugar: string | null
           posicion: string | null
           tdt_session: number
         }
@@ -389,7 +389,7 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
-          lugar: string
+          lugar?: string | null
           posicion?: string | null
           tdt_session: number
         }
@@ -402,7 +402,7 @@ export type Database = {
           fin?: string | null
           id?: number
           inicio?: string | null
-          lugar?: string
+          lugar?: string | null
           posicion?: string | null
           tdt_session?: number
         }
