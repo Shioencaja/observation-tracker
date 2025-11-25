@@ -2156,9 +2156,9 @@ function CreateSessionPageContent() {
       {/* Scrollable Cards Container */}
       <div
         ref={scrollContainerRef}
-        className="flex justify-center h-full overflow-y-auto min-h-0 pb-24"
+        className="flex justify-center h-full overflow-y-auto min-h-0"
       >
-        <div className="h-full w-full max-w-4xl px-6 py-6">
+        <div className="h-full w-full max-w-4xl px-6 py-6 pb-32">
           {/* Session Cards */}
           <div className="w-full space-y-4">
             {sessionCards.map((card, index) => {
