@@ -2156,7 +2156,7 @@ function CreateSessionPageContent() {
       {/* Scrollable Cards Container */}
       <div
         ref={scrollContainerRef}
-        className="flex justify-center h-full overflow-y-auto min-h-0"
+        className="flex justify-center h-full overflow-y-auto min-h-0 pb-24"
       >
         <div className="h-full w-full max-w-4xl px-6 py-6">
           {/* Session Cards */}
@@ -2429,8 +2429,8 @@ function CreateSessionPageContent() {
 
       {/* Fixed bottom buttons */}
       <div
-        className="bg-white border-t border-gray-200 shadow-lg z-50"
-        style={{ position: "relative", zIndex: 50 }}
+        className="bg-white border-t border-gray-200 shadow-lg z-50 fixed bottom-0 left-0 right-0"
+        style={{ zIndex: 50 }}
       >
         <div className="max-w-4xl mx-auto px-2 sm:px-6 py-4">
           <div className="flex gap-2 sm:gap-3">
