@@ -71,10 +71,11 @@ interface SessionCard {
 }
 
 // Cascading options structure from tdt_options
-// Structure: canal -> descripcion
-// Note: lugar comes from tdt_lugar table and is completely independent
+// Structure: lugar -> canal -> descripcion
 interface CascadingOptions {
-  [canal: string]: string[]; // Array of descripciones directly
+  [lugar: string]: {
+    [canal: string]: string[]; // Array of descripciones
+  };
 }
 
 function CreateSessionPageContent() {
@@ -292,13 +293,8 @@ function CreateSessionPageContent() {
   }, [agency, role, router]);
 
   useEffect(() => {
-    if (user) {
-      loadLugares();
-    }
-  }, [user]);
-
-  useEffect(() => {
     if (user && selectedRole) {
+      loadLugares();
       loadOptions();
     }
   }, [user, selectedRole]);
@@ -456,21 +452,31 @@ function CreateSessionPageContent() {
   }, [isLoadingSessions, sessionCards]);
 
   const loadLugares = async () => {
-    try {
-      // Load lugares from tdt_lugar table
-      const { data: lugaresData, error: lugaresError } = await supabase
-        .from("tdt_lugar")
-        .select("lugar")
-        .order("lugar");
+    if (!selectedRole) {
+      setLugares([]);
+      return;
+    }
 
-      if (lugaresError) {
-        console.error("Error loading lugares:", lugaresError);
+    try {
+      // Load unique lugares from tdt_options filtered by role
+      const { data: optionsData, error: optionsError } = await supabase
+        .from("tdt_options")
+        .select("lugar")
+        .eq("rol", selectedRole)
+        .not("lugar", "is", null);
+
+      if (optionsError) {
+        console.error("Error loading lugares:", optionsError);
+        setLugares([]);
         return;
       }
 
-      if (lugaresData && lugaresData.length > 0) {
-        const lugaresList = lugaresData.map((item) => item.lugar).sort();
-        setLugares(lugaresList);
+      if (optionsData && optionsData.length > 0) {
+        // Get unique lugares and sort them
+        const uniqueLugares = Array.from(
+          new Set(optionsData.map((item) => item.lugar).filter(Boolean))
+        ).sort();
+        setLugares(uniqueLugares);
       } else {
         setLugares([]);
       }
@@ -502,44 +508,53 @@ function CreateSessionPageContent() {
         return;
       }
 
-      // Build cascading structure: canal -> descripcion
-      // Note: lugar is completely independent and comes from tdt_lugar table
-      // The cascading structure is used for canal -> descripcion only
+      // Build cascading structure: lugar -> canal -> descripcion
       const cascading: CascadingOptions = {};
 
-      optionsData.forEach((option, index) => {
+      optionsData.forEach((option) => {
+        const lugar = option.lugar;
         const canal = option.canal;
         const descripcion = option.descripción;
+
+        // Skip if no lugar is specified
+        if (!lugar) {
+          return;
+        }
+
+        // Initialize the lugar entry if it doesn't exist
+        if (!cascading[lugar]) {
+          cascading[lugar] = {};
+        }
 
         // If canal exists, add it to the structure
         if (canal) {
           // Initialize the canal entry if it doesn't exist
-          if (!cascading[canal]) {
-            cascading[canal] = [];
+          if (!cascading[lugar][canal]) {
+            cascading[lugar][canal] = [];
           }
 
           // If descripcion exists, add it to the canal's descripciones array
-          if (descripcion && !cascading[canal].includes(descripcion)) {
-            cascading[canal].push(descripcion);
+          if (descripcion && !cascading[lugar][canal].includes(descripcion)) {
+            cascading[lugar][canal].push(descripcion);
           }
-          // Note: Even if there's no descripcion, the canal is still added to the structure
-          // so it will appear in the dropdown
         } else if (descripcion) {
           // If no canal but has descripcion, use a placeholder "Sin canal"
           const placeholderCanal = "Sin canal";
-          if (!cascading[placeholderCanal]) {
-            cascading[placeholderCanal] = [];
+          if (!cascading[lugar][placeholderCanal]) {
+            cascading[lugar][placeholderCanal] = [];
           }
 
-          if (!cascading[placeholderCanal].includes(descripcion)) {
-            cascading[placeholderCanal].push(descripcion);
+          if (!cascading[lugar][placeholderCanal].includes(descripcion)) {
+            cascading[lugar][placeholderCanal].push(descripcion);
           }
         }
       });
 
       // Sort all descripciones arrays alphabetically
-      Object.keys(cascading).forEach((canal) => {
-        cascading[canal].sort();
+      Object.keys(cascading).forEach((lugar) => {
+        Object.keys(cascading[lugar]).forEach((canal) => {
+          cascading[lugar][canal].sort();
+        });
       });
 
       setCascadingOptions(cascading);
@@ -1942,10 +1957,12 @@ function CreateSessionPageContent() {
     setDialogFormData({
       ...dialogFormData,
       firstDropdown: value,
+      // Clear dependent dropdowns when lugar changes
+      secondDropdown: "",
+      thirdDropdown: "",
       // Clear posicion and altura when lugar changes
       posicion: "",
       altura: "",
-      // Don't reset second/third dropdowns since lugar is independent
     });
   };
 
@@ -2077,29 +2094,50 @@ function CreateSessionPageContent() {
     });
   };
 
-  // Get second level options (canal) - independent of lugar selection
-  const getSecondLevelOptions = useMemo(() => {
-    const options = Object.keys(cascadingOptions).sort();
-    return options;
-  }, [cascadingOptions]);
-
-  // Get third level options (descripcion) based on canal selection
-  const getThirdLevelOptions = (canalValue: string): string[] => {
-    if (!canalValue || !cascadingOptions[canalValue]) {
+  // Get second level options (canal) - filtered by lugar selection
+  const getSecondLevelOptions = (lugarValue: string): string[] => {
+    if (!lugarValue || !cascadingOptions[lugarValue]) {
       return [];
     }
-    // Get descripciones directly for the selected canal, sorted alphabetically
-    const options = cascadingOptions[canalValue] || [];
+    // Get canales for the selected lugar, sorted alphabetically
+    const options = Object.keys(cascadingOptions[lugarValue]).sort();
+    return options;
+  };
+
+  // Get third level options (descripcion) based on lugar and canal selection
+  const getThirdLevelOptions = (
+    lugarValue: string,
+    canalValue: string
+  ): string[] => {
+    if (
+      !lugarValue ||
+      !canalValue ||
+      !cascadingOptions[lugarValue] ||
+      !cascadingOptions[lugarValue][canalValue]
+    ) {
+      return [];
+    }
+    // Get descripciones for the selected lugar and canal, sorted alphabetically
+    const options = cascadingOptions[lugarValue][canalValue] || [];
     return [...options].sort();
   };
 
-  // Get dialog second level options (canal) - use the memoized value directly
-  const dialogSecondLevelOptions = getSecondLevelOptions;
+  // Get dialog second level options (canal) - filtered by selected lugar
+  const dialogSecondLevelOptions = useMemo(() => {
+    return getSecondLevelOptions(dialogFormData.firstDropdown);
+  }, [dialogFormData.firstDropdown, cascadingOptions]);
 
-  // Get dialog third level options (descripcion)
+  // Get dialog third level options (descripcion) - filtered by selected lugar and canal
   const dialogThirdLevelOptions = useMemo(() => {
-    return getThirdLevelOptions(dialogFormData.secondDropdown);
-  }, [dialogFormData.secondDropdown, cascadingOptions]);
+    return getThirdLevelOptions(
+      dialogFormData.firstDropdown,
+      dialogFormData.secondDropdown
+    );
+  }, [
+    dialogFormData.firstDropdown,
+    dialogFormData.secondDropdown,
+    cascadingOptions,
+  ]);
 
   // Convert arrays to ComboboxOption format
   const lugarOptions: ComboboxOption[] = useMemo(() => {
@@ -2575,7 +2613,7 @@ function CreateSessionPageContent() {
               </div>
             )}
 
-            {/* Second Dropdown - Canal (Independent of Lugar) */}
+            {/* Second Dropdown - Canal (Filtered by Lugar) */}
             <div>
               <label className="text-sm font-medium text-gray-700 mb-2 block">
                 Canal *
@@ -2585,21 +2623,21 @@ function CreateSessionPageContent() {
                 value={dialogFormData.secondDropdown}
                 onValueChange={handleDialogSecondDropdownChange}
                 placeholder={
-                  selectedRole
-                    ? canalOptions.length > 0
-                      ? "Seleccionar canal..."
-                      : "Cargando opciones..."
-                    : "Selecciona un rol primero"
+                  !dialogFormData.firstDropdown
+                    ? "Selecciona un lugar primero"
+                    : canalOptions.length > 0
+                    ? "Seleccionar canal..."
+                    : "No hay canales disponibles"
                 }
                 searchPlaceholder="Buscar canal..."
                 emptyText={
-                  selectedRole
-                    ? canalOptions.length === 0
-                      ? "Cargando opciones..."
-                      : "No se encontraron canales"
-                    : "Selecciona un rol primero"
+                  !dialogFormData.firstDropdown
+                    ? "Selecciona un lugar primero"
+                    : canalOptions.length === 0
+                    ? "No se encontraron canales"
+                    : "No se encontraron canales"
                 }
-                disabled={!selectedRole}
+                disabled={!dialogFormData.firstDropdown || !selectedRole}
                 className="w-full"
               />
             </div>

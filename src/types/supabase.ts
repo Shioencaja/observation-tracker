@@ -428,21 +428,32 @@ export type Database = {
           canal: string | null
           descripción: string | null
           id: string
+          lugar: string | null
           rol: string | null
         }
         Insert: {
           canal?: string | null
           descripción?: string | null
           id?: string
+          lugar?: string | null
           rol?: string | null
         }
         Update: {
           canal?: string | null
           descripción?: string | null
           id?: string
+          lugar?: string | null
           rol?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tdt_options_lugar_fkey"
+            columns: ["lugar"]
+            isOneToOne: false
+            referencedRelation: "tdt_lugar"
+            referencedColumns: ["lugar"]
+          },
+        ]
       }
       tdt_sessions: {
         Row: {
