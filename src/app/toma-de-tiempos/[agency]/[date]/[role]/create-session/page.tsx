@@ -18,6 +18,7 @@ import {
   ChevronUp,
   Edit,
   Save,
+  AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/lib/supabase";
@@ -37,6 +38,8 @@ import { FullPageLoading } from "@/components/LoadingSpinner";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useToastManager } from "@/hooks/use-toast-manager";
+import { ToastContainer } from "@/components/ui/toast";
 import type { Database } from "@/types/supabase";
 
 type TdtSession = Database["public"]["Tables"]["tdt_sessions"]["Row"];
@@ -85,6 +88,7 @@ function CreateSessionPageContent() {
   const agency = params?.agency as string;
   const date = params?.date as string;
   const role = params?.role as string;
+  const { toasts, showWarning, removeToast } = useToastManager();
   const [selectedAgency, setSelectedAgency] = useState<string>("");
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [agencyCode, setAgencyCode] = useState<number | null>(null);
@@ -161,6 +165,33 @@ function CreateSessionPageContent() {
     const card = sessionCards.find((c) => c.id === cardId);
     if (!card || card.observations.length === 0) return false;
     return card.observations.every((obs) => obs.startTime !== null);
+  };
+
+  // Helper to check if all observation fields are complete
+  const areAllObservationFieldsComplete = (cardId: string): boolean => {
+    const card = sessionCards.find((c) => c.id === cardId);
+    if (!card || card.observations.length === 0) return true; // No observations means nothing to check
+    return card.observations.every(
+      (obs) =>
+        obs.firstDropdown &&
+        obs.firstDropdown.trim() !== "" &&
+        obs.secondDropdown &&
+        obs.secondDropdown.trim() !== "" &&
+        obs.thirdDropdown &&
+        obs.thirdDropdown.trim() !== ""
+    );
+  };
+
+  // Helper to check if a single observation has incomplete fields
+  const isObservationIncomplete = (observation: Observation): boolean => {
+    return (
+      !observation.firstDropdown ||
+      observation.firstDropdown.trim() === "" ||
+      !observation.secondDropdown ||
+      observation.secondDropdown.trim() === "" ||
+      !observation.thirdDropdown ||
+      observation.thirdDropdown.trim() === ""
+    );
   };
 
   // Helper to check if the last observation in a card has started
@@ -1292,9 +1323,12 @@ function CreateSessionPageContent() {
       return;
     }
 
-    if (!canFinishCard(cardId)) {
-      console.log("handleFinishSession: Cannot finish card", cardId);
-      return; // Don't finish if not all observations have started
+    // Check if all observation fields are complete and prevent finishing if not
+    if (!areAllObservationFieldsComplete(cardId)) {
+      showWarning(
+        "Por favor, complete todos los campos en las observaciones para finalizar la sesión"
+      );
+      return; // Don't finish if not all observation fields are complete
     }
 
     try {
@@ -2226,11 +2260,24 @@ function CreateSessionPageContent() {
                           }
                         }}
                       >
-                        <CardTitle className="text-lg">
-                          {card.dbId
-                            ? `Cliente ${card.dbId}`
-                            : `Cliente ${sessionCards.length - index}`}
-                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-lg">
+                            {card.dbId
+                              ? `Cliente ${card.dbId}`
+                              : `Cliente ${sessionCards.length - index}`}
+                          </CardTitle>
+                          {!areAllObservationFieldsComplete(card.id) && (
+                            <span
+                              title="Esta sesión tiene observaciones con campos incompletos"
+                              className="inline-flex items-center"
+                            >
+                              <AlertTriangle
+                                size={18}
+                                className="text-yellow-600"
+                              />
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2">
                         {isMinimized && !isFinished && (
@@ -2251,7 +2298,7 @@ function CreateSessionPageContent() {
                             variant="default"
                             size="sm"
                             className="h-7 text-xs"
-                            disabled={!canFinishCard(card.id)}
+                            disabled={!areAllObservationFieldsComplete(card.id)}
                             style={{ pointerEvents: "auto" }}
                           >
                             Finalizar
@@ -2302,10 +2349,23 @@ function CreateSessionPageContent() {
                             >
                               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                 <div className="flex sm:items-center sm:gap-8 flex-col sm:flex-row gap-2">
-                                  <span className="text-sm font-medium text-gray-700">
-                                    {observation.thirdDropdown ||
-                                      `Observación ${obsIndex + 1}`}
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-sm font-medium text-gray-700">
+                                      {observation.thirdDropdown ||
+                                        `Observación ${obsIndex + 1}`}
+                                    </span>
+                                    {isObservationIncomplete(observation) && (
+                                      <span
+                                        title="Esta observación tiene campos incompletos"
+                                        className="inline-flex items-center"
+                                      >
+                                        <AlertTriangle
+                                          size={16}
+                                          className="text-yellow-600"
+                                        />
+                                      </span>
+                                    )}
+                                  </div>
                                   {observation.startTime && (
                                     <span className="text-xs text-gray-500">
                                       Inicio:{" "}
@@ -2439,7 +2499,9 @@ function CreateSessionPageContent() {
                                 handleFinishSession(card.id);
                               }}
                               className="w-full"
-                              disabled={!canFinishCard(card.id)}
+                              disabled={
+                                !areAllObservationFieldsComplete(card.id)
+                              }
                               style={{ pointerEvents: "auto" }}
                             >
                               Finalizar Sesión
@@ -2771,6 +2833,9 @@ function CreateSessionPageContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
     </div>
   );
 }
