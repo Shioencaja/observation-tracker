@@ -1,10 +1,13 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 
+export type ProjectUserRole = "admin" | "editor" | "viewer";
+
 interface ProjectUser {
   id: string;
   user_id: string;
   user_email: string;
+  role: ProjectUserRole | null;
   created_at: string;
 }
 
@@ -19,12 +22,14 @@ interface UseProjectUsersReturn {
   isLoading: boolean;
   isAdding: boolean;
   isRemoving: boolean;
+  isUpdatingRole: boolean;
   error: string | null;
   selectedUserId: string;
   setSelectedUserId: (id: string) => void;
   loadUsers: () => Promise<void>;
-  addUser: (projectId: string, userId: string, addedBy: string) => Promise<void>;
+  addUser: (projectId: string, userId: string, addedBy: string, role?: ProjectUserRole) => Promise<void>;
   removeUser: (projectId: string, userId: string) => Promise<void>;
+  updateUserRole: (projectId: string, userId: string, role: ProjectUserRole) => Promise<void>;
 }
 
 export function useProjectUsers(
@@ -35,6 +40,7 @@ export function useProjectUsers(
   const [isLoading, setIsLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [isUpdatingRole, setIsUpdatingRole] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserId, setSelectedUserId] = useState("");
 
@@ -97,6 +103,10 @@ export function useProjectUsers(
 
       // Get user emails for the project users
       if (data && data.length > 0) {
+        const withRole = (pu: (typeof data)[0]) => ({
+          ...pu,
+          role: (pu.role as ProjectUserRole) || null,
+        });
         try {
           const userIds = data.map((pu) => pu.user_id);
           const { data: userEmails, error: emailError } = await supabase.rpc(
@@ -107,11 +117,11 @@ export function useProjectUsers(
           if (emailError) {
             console.error("Error loading user emails:", emailError);
             setProjectUsers(
-              data.map((pu) => ({ ...pu, user_email: pu.user_id }))
+              data.map((pu) => ({ ...withRole(pu), user_email: pu.user_id }))
             );
           } else {
             const projectUsersWithEmails = data.map((pu) => ({
-              ...pu,
+              ...withRole(pu),
               user_email:
                 userEmails?.find(
                   (ue: { user_id: string; email: string }) =>
@@ -123,7 +133,7 @@ export function useProjectUsers(
         } catch (emailError) {
           console.error("Error in email loading:", emailError);
           setProjectUsers(
-            data.map((pu) => ({ ...pu, user_email: pu.user_id }))
+            data.map((pu) => ({ ...withRole(pu), user_email: pu.user_id }))
           );
         }
       }
@@ -168,7 +178,7 @@ export function useProjectUsers(
 
   // Add user to project
   const addUser = useCallback(
-    async (projectId: string, userId: string, addedBy: string) => {
+    async (projectId: string, userId: string, addedBy: string, role: ProjectUserRole = "viewer") => {
       if (!userId || isAdding) return;
 
       setIsAdding(true);
@@ -188,6 +198,7 @@ export function useProjectUsers(
           project_id: projectId,
           user_id: userId,
           added_by: addedBy,
+          role,
         });
 
         if (error) {
@@ -269,18 +280,71 @@ export function useProjectUsers(
     [isRemoving, loadProjectUsers]
   );
 
+  // Update user role in project
+  const updateUserRole = useCallback(
+    async (projectId: string, userId: string, role: ProjectUserRole) => {
+      if (isUpdatingRole) return;
+
+      setIsUpdatingRole(true);
+      setError(null);
+
+      const tableExists = await checkTableExists();
+      if (!tableExists) {
+        setError(
+          "La funcionalidad de gestión de usuarios no está disponible. Ejecute el script de migración de la base de datos."
+        );
+        setIsUpdatingRole(false);
+        return;
+      }
+
+      try {
+        const { error } = await supabase
+          .from("project_users")
+          .update({ role })
+          .eq("project_id", projectId)
+          .eq("user_id", userId);
+
+        if (error) {
+          if (isTableMissingError(error)) {
+            setError(
+              "La funcionalidad de gestión de usuarios no está disponible. Ejecute el script de migración de la base de datos."
+            );
+            return;
+          }
+          throw error;
+        }
+
+        await loadProjectUsers();
+      } catch (err) {
+        console.error("Error updating user role:", err);
+        if (isTableMissingError(err)) {
+          setError(
+            "La funcionalidad de gestión de usuarios no está disponible. Ejecute el script de migración de la base de datos."
+          );
+        } else {
+          setError("Error al actualizar el rol");
+        }
+      } finally {
+        setIsUpdatingRole(false);
+      }
+    },
+    [isUpdatingRole, loadProjectUsers]
+  );
+
   return {
     projectUsers,
     allUsers,
     isLoading,
     isAdding,
     isRemoving,
+    isUpdatingRole,
     error,
     selectedUserId,
     setSelectedUserId,
     loadUsers,
     addUser,
     removeUser,
+    updateUserRole,
   };
 }
 
